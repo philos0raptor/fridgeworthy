@@ -6,8 +6,15 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AA000001AAAA000000000001 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002AAAA000000000001 /* Supabase */; };
+		AA000001AAAA000000000002 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002AAAA000000000002 /* RevenueCat */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		19C097A92FAABCE0003C6A1D /* fridgeworthy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = fridgeworthy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB000001BBBB000000000001 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Config/Debug.xcconfig; sourceTree = "<group>"; };
+		BB000001BBBB000000000002 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Config/Release.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -23,6 +30,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA000001AAAA000000000001 /* Supabase in Frameworks */,
+				AA000001AAAA000000000002 /* RevenueCat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -32,6 +41,7 @@
 		19C097A02FAABCE0003C6A1D = {
 			isa = PBXGroup;
 			children = (
+				BB000002BBBB000000000001 /* Config */,
 				19C097AB2FAABCE0003C6A1D /* fridgeworthy */,
 				19C097AA2FAABCE0003C6A1D /* Products */,
 			);
@@ -43,6 +53,15 @@
 				19C097A92FAABCE0003C6A1D /* fridgeworthy.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		BB000002BBBB000000000001 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				BB000001BBBB000000000001 /* Debug.xcconfig */,
+				BB000001BBBB000000000002 /* Release.xcconfig */,
+			);
+			name = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -65,6 +84,8 @@
 			);
 			name = fridgeworthy;
 			packageProductDependencies = (
+				AA000002AAAA000000000001 /* Supabase */,
+				AA000002AAAA000000000002 /* RevenueCat */,
 			);
 			productName = fridgeworthy;
 			productReference = 19C097A92FAABCE0003C6A1D /* fridgeworthy.app */;
@@ -94,6 +115,10 @@
 			);
 			mainGroup = 19C097A02FAABCE0003C6A1D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA000003AAAA000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				AA000003AAAA000000000002 /* XCRemoteSwiftPackageReference "purchases-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 19C097AA2FAABCE0003C6A1D /* Products */;
 			projectDirPath = "";
@@ -127,6 +152,7 @@
 /* Begin XCBuildConfiguration section */
 		19C097B42FAABCE1003C6A1D /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB000001BBBB000000000001 /* Debug.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -188,6 +214,7 @@
 		};
 		19C097B52FAABCE1003C6A1D /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB000001BBBB000000000002 /* Release.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -265,7 +292,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = philosofy.fridgeworthy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fridgeworthy.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -307,7 +334,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = philosofy.fridgeworthy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fridgeworthy.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -345,6 +372,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA000003AAAA000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+		AA000003AAAA000000000002 /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA000002AAAA000000000001 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000003AAAA000000000001 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		AA000002AAAA000000000002 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA000003AAAA000000000002 /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 19C097A12FAABCE0003C6A1D /* Project object */;
 }

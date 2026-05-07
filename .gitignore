@@ -1,0 +1,16 @@
+# Secrets (contains real API keys)
+fridgeworthy/Config/Secrets.swift
+Config/Debug.xcconfig
+Config/Release.xcconfig
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# macOS
+.DS_Store
