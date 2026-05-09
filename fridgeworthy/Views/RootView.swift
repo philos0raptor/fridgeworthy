@@ -24,6 +24,11 @@ struct RootView: View {
                 await revenueCatService.checkSubscriptionStatus()
             }
         }
+        .onAppear {
+            if skipAuth {
+                SeedDataService.seedIfNeeded(modelContext: modelContext)
+            }
+        }
     }
 
     private func ensureLocalProfile(userID: UUID) {

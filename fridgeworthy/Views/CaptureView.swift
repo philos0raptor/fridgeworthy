@@ -11,6 +11,7 @@ struct CaptureView: View {
     @State private var selectedChild: Child?
 
     let child: Child
+    var initialImage: UIImage? = nil
 
     var activeChild: Child { selectedChild ?? child }
 
@@ -69,6 +70,11 @@ struct CaptureView: View {
                 }
             }
             .disabled(viewModel.isUploading)
+            .task {
+                if let image = initialImage, viewModel.selectedImage == nil {
+                    await viewModel.processImage(image)
+                }
+            }
             .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
                 Button("OK") { viewModel.errorMessage = nil }
             } message: {
@@ -142,6 +148,9 @@ struct CaptureView: View {
             Text("Removing background...")
                 .font(FW.Font.body(15))
                 .foregroundStyle(FW.Color.ink3)
+            Text("We'll remove the background automatically")
+                .font(FW.Font.caption(13))
+                .foregroundStyle(FW.Color.ink4)
         }
         .frame(maxHeight: .infinity)
     }
