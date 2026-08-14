@@ -1,0 +1,6 @@
+// Copy this file to Release.xcconfig and fill in your values
+// DO NOT commit Release.xcconfig — it's in .gitignore
+
+SUPABASE_URL = https:/$()/YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY = YOUR_ANON_KEY
+REVENUECAT_API_KEY = YOUR_REVENUECAT_API_KEY
