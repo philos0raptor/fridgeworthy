@@ -6,12 +6,16 @@ struct RootView: View {
     @Environment(RevenueCatService.self) private var revenueCatService
     @Environment(\.modelContext) private var modelContext
 
-    // TODO: Remove this flag before shipping — bypasses auth for UI testing
-    private let skipAuth = true
+    // DEBUG-only local bypass. Never compiled into Release builds.
+    #if DEBUG
+    private let debugSkipAuth = true
+    #else
+    private let debugSkipAuth = false
+    #endif
 
     var body: some View {
         Group {
-            if skipAuth || authService.isAuthenticated {
+            if debugSkipAuth || authService.isAuthenticated {
                 MainTabView()
             } else {
                 SignInView()
@@ -25,7 +29,7 @@ struct RootView: View {
             }
         }
         .onAppear {
-            if skipAuth {
+            if debugSkipAuth {
                 SeedDataService.seedIfNeeded(modelContext: modelContext)
             }
         }

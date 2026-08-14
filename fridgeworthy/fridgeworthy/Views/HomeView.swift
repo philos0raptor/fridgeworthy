@@ -9,6 +9,22 @@ struct HomeView: View {
     @State private var showAddChild = false
     @State private var newChildName = ""
     @State private var selectedChild: Child?
+    @State private var stylePickerChild: Child?
+    @State private var wallpaperFlow: WallpaperFlow?
+
+    struct WallpaperFlow: Hashable {
+        let child: Child
+        let style: StyleTemplate
+
+        static func == (lhs: WallpaperFlow, rhs: WallpaperFlow) -> Bool {
+            lhs.child.id == rhs.child.id && lhs.style.id == rhs.style.id
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(child.id)
+            hasher.combine(style.id)
+        }
+    }
 
     private var userProfile: UserProfile? { profiles.first }
 
@@ -56,6 +72,15 @@ struct HomeView: View {
             Button("Cancel", role: .cancel) { newChildName = "" }
         } message: {
             Text("Enter your child's name to get started")
+        }
+        .sheet(item: $stylePickerChild) { child in
+            StylePickerView(child: child) { style in
+                stylePickerChild = nil
+                wallpaperFlow = WallpaperFlow(child: child, style: style)
+            }
+        }
+        .navigationDestination(item: $wallpaperFlow) { flow in
+            WallpaperView(child: flow.child, style: flow.style)
         }
         .onAppear {
             if userProfile == nil {
@@ -190,18 +215,18 @@ struct HomeView: View {
 
                     HStack(spacing: 12) {
                         FWButton(title: "Make wallpaper", icon: "wand.and.stars", style: .primary) {
-                            // TODO: navigate to style picker
+                            stylePickerChild = artwork.child
                         }
 
-                        Button {
-                            // TODO: share
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 17))
-                                .foregroundStyle(FW.Color.ink)
-                                .frame(width: 44, height: 44)
-                                .background(FW.Color.surface2)
-                                .clipShape(Circle())
+                        if let url = shareURL(for: artwork) {
+                            ShareLink(item: url) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 17))
+                                    .foregroundStyle(FW.Color.ink)
+                                    .frame(width: 44, height: 44)
+                                    .background(FW.Color.surface2)
+                                    .clipShape(Circle())
+                            }
                         }
                     }
                     .padding(.top, 4)
@@ -312,6 +337,20 @@ struct HomeView: View {
         let fileURL = documentsURL.appendingPathComponent(artwork.localImagePath)
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         return UIImage(data: data)
+    }
+
+    private func shareURL(for artwork: Artwork) -> URL? {
+        if !artwork.localImagePath.isEmpty {
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let fileURL = documentsURL.appendingPathComponent(artwork.localImagePath)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                return fileURL
+            }
+        }
+        if let remote = artwork.remoteImageURL {
+            return URL(string: remote)
+        }
+        return nil
     }
 
     private func ensureProfile() {

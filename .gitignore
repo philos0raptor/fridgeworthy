@@ -1,16 +1,30 @@
-# Secrets (contains real API keys)
-fridgeworthy/Config/Secrets.swift
-Config/Debug.xcconfig
-Config/Release.xcconfig
-
 # Xcode
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
 DerivedData/
+build/
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
 *.hmap
 *.ipa
 *.dSYM.zip
 *.dSYM
 
-# macOS
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Config files with real keys
+fridgeworthy/Config/Debug.xcconfig
+fridgeworthy/Config/Release.xcconfig
+fridgeworthy/fridgeworthy/Config/Secrets.swift
+
+# OS
 .DS_Store
+
+# Supabase local
+supabase/.temp/

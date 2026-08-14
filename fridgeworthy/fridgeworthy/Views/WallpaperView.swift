@@ -1,9 +1,18 @@
 import SwiftUI
 import SwiftData
+import Photos
 
 struct WallpaperView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = WallpaperGenerationViewModel()
+    @State private var saveState: SaveState = .idle
+
+    enum SaveState: Equatable {
+        case idle
+        case saving
+        case saved
+        case failed(String)
+    }
 
     let child: Child
     let style: StyleTemplate
@@ -116,27 +125,83 @@ struct WallpaperView: View {
                         .padding(4)
                     }
                     .modifier(FW.Shadow.cardHero())
-            }
 
-            HStack(spacing: 12) {
-                FWButton(title: "Save to Photos", icon: "square.and.arrow.down") {
-                    // TODO: Save to Photos
-                }
+                HStack(spacing: 12) {
+                    FWButton(title: saveButtonTitle, icon: saveButtonIcon) {
+                        Task { await saveWallpaper(url: url) }
+                    }
+                    .disabled(saveState == .saving || saveState == .saved)
 
-                Button {
-                    // share handled by ShareLink
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(FW.Color.ink)
-                        .frame(width: 54, height: 54)
-                        .background(FW.Color.surface2)
-                        .clipShape(Circle())
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(FW.Color.ink)
+                            .frame(width: 54, height: 54)
+                            .background(FW.Color.surface2)
+                            .clipShape(Circle())
+                    }
+                }
+                .padding(.horizontal, FW.Spacing.md)
+
+                if case .failed(let message) = saveState {
+                    Text(message)
+                        .font(FW.Font.caption(13))
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, FW.Spacing.md)
                 }
             }
-            .padding(.horizontal, FW.Spacing.md)
         }
         .padding(.top, 20)
+    }
+
+    private var saveButtonTitle: String {
+        switch saveState {
+        case .idle, .failed: return "Save to Photos"
+        case .saving: return "Saving…"
+        case .saved: return "Saved"
+        }
+    }
+
+    private var saveButtonIcon: String {
+        switch saveState {
+        case .saved: return "checkmark"
+        default: return "square.and.arrow.down"
+        }
+    }
+
+    private func saveWallpaper(url: URL) async {
+        saveState = .saving
+        do {
+            let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+            let granted: Bool
+            switch status {
+            case .authorized, .limited:
+                granted = true
+            case .notDetermined:
+                let newStatus = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+                granted = newStatus == .authorized || newStatus == .limited
+            default:
+                granted = false
+            }
+            guard granted else {
+                saveState = .failed("Photo library access denied. Enable it in Settings to save wallpapers.")
+                return
+            }
+
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let image = UIImage(data: data) else {
+                saveState = .failed("Couldn't decode the wallpaper image.")
+                return
+            }
+
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.creationRequestForAsset(from: image)
+            }
+            saveState = .saved
+        } catch {
+            saveState = .failed(error.localizedDescription)
+        }
     }
 
     private var failedView: some View {
