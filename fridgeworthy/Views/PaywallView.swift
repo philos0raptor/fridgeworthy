@@ -1,9 +1,12 @@
 import SwiftUI
+import RevenueCat
 
 struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(RevenueCatService.self) private var revenueCatService
     @State private var selectedPlan: Plan = .yearly
+    @State private var isPurchasing = false
+    @State private var purchaseError: String?
 
     enum Plan { case monthly, yearly }
 
@@ -70,10 +73,19 @@ struct PaywallView: View {
                         .padding(.horizontal, FW.Spacing.md)
 
                         // CTA
-                        FWButton(title: "Start 7-day free trial") {
-                            // TODO: select correct package from offerings based on selectedPlan
+                        FWButton(title: isPurchasing ? "Starting…" : "Start 7-day free trial") {
+                            Task { await startPurchase() }
                         }
+                        .disabled(isPurchasing)
                         .padding(.horizontal, FW.Spacing.md)
+
+                        if let purchaseError {
+                            Text(purchaseError)
+                                .font(FW.Font.caption(13))
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, FW.Spacing.md)
+                        }
 
                         // Footer
                         HStack(spacing: 4) {
@@ -82,7 +94,10 @@ struct PaywallView: View {
                             Text("·")
                                 .foregroundStyle(FW.Color.ink4)
                             Button("Restore purchases") {
-                                Task { try? await revenueCatService.restorePurchases() }
+                                Task {
+                                    try? await revenueCatService.restorePurchases()
+                                    if revenueCatService.isProUser { dismiss() }
+                                }
                             }
                             .foregroundStyle(FW.Color.accent)
                         }
@@ -230,5 +245,27 @@ struct PaywallView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Purchase
+
+    private func startPurchase() async {
+        purchaseError = nil
+        isPurchasing = true
+        defer { isPurchasing = false }
+
+        let packages = await revenueCatService.fetchOfferings()
+        let desired: PackageType = selectedPlan == .monthly ? .monthly : .annual
+        guard let package = packages.first(where: { $0.packageType == desired }) else {
+            purchaseError = "That plan isn't available right now. Please try again."
+            return
+        }
+
+        do {
+            let success = try await revenueCatService.purchase(package: package)
+            if success { dismiss() }
+        } catch {
+            purchaseError = error.localizedDescription
+        }
     }
 }
