@@ -33,8 +33,19 @@ xcodebuild -project fridgeworthy/fridgeworthy.xcodeproj \
   -destination 'generic/platform=iOS Simulator' build
 ```
 
-Expect `** BUILD SUCCEEDED **`. Baseline is 0 errors, 7 warnings — do not treat those
-7 as something you introduced.
+Expect `** BUILD SUCCEEDED **` and **0 errors**.
+
+**On warning counts — read this before reporting a discrepancy.** A *clean* build emits
+**7** `warning:` lines: 3 unique source warnings, each emitted once per architecture
+(arm64 + x86_64), plus 1 `appintentsmetadataprocessor` tooling notice. An *incremental*
+build emits far fewer, because unchanged files are not recompiled and their warnings are
+not re-emitted — a rebuild after a one-file change can legitimately show just 1.
+
+So: warning counts are only comparable **clean-to-clean**. Compare unique sources, not raw
+line counts, and never report "I removed warnings" from an incremental build. The 3 known
+source warnings are pre-existing — you did not introduce them:
+- `Views/PaywallView.swift:37` — deprecated `Text` `+` (iOS 26)
+- `Views/WallpaperView.swift:79` and `:222` — redundant `await` on a non-async call
 
 ## FIRST STEP IN ANY FRESH WORKTREE — bootstrap secrets
 
@@ -43,14 +54,17 @@ Expect `** BUILD SUCCEEDED **`. Baseline is 0 errors, 7 warnings — do not trea
 which is **gitignored and untracked** — so a fresh worktree checks out without it and
 **the build fails to compile**.
 
-Copy them in before building:
+The compile error you get without them is `cannot find 'Secrets' in scope` — which does
+not mention secrets at all, and invites exactly the wrong fix.
+
+Run this first, from the root of your checkout:
 
 ```bash
-MAIN=/Users/pheng/Projects/Playground/fridgeworthy
-cp "$MAIN/fridgeworthy/Config/Debug.xcconfig"   fridgeworthy/Config/
-cp "$MAIN/fridgeworthy/Config/Release.xcconfig" fridgeworthy/Config/
-cp "$MAIN/fridgeworthy/fridgeworthy/Config/Secrets.swift" fridgeworthy/fridgeworthy/Config/
+./scripts/bootstrap-secrets.sh
 ```
+
+It copies the three files from the main checkout, fails loudly if they are missing, and is
+a no-op when run in the main checkout itself.
 
 **Never author these files yourself, and never commit them.** If the copy fails, stop and
 report it. Inventing placeholder secret values leaks a fake config into git and hides the

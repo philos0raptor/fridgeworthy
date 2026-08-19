@@ -13,7 +13,7 @@ at the repo root first — it has the layout, the build command, and the secrets
 ## Order of operations
 
 **1. Bootstrap secrets before anything else.**
-Run the copy block in `CLAUDE.md` under "FIRST STEP IN ANY FRESH WORKTREE". Without it the
+Run `./scripts/bootstrap-secrets.sh` from the root of your worktree. Without it the
 build fails to compile. If the copy fails, stop and report — never author `Secrets.swift`
 or an `.xcconfig` yourself, and never commit them.
 
@@ -23,9 +23,11 @@ specific `file:line` locations — verify each still says what the issue claims 
 change it. These issues were written against a known commit and may have drifted.
 
 **3. Establish a baseline.**
-Build before you change anything, so you know the starting state:
-`** BUILD SUCCEEDED **`, 0 errors, 7 warnings. If the baseline is already broken, stop and
-report rather than fixing it as a side quest.
+Build before you change anything, so you know the starting state: `** BUILD SUCCEEDED **`
+and 0 errors. See the warning-count note in `CLAUDE.md` before comparing warnings — clean and
+incremental builds emit different counts, and comparing across them produces a false
+discrepancy. If the baseline is already broken, stop and report rather than fixing it as a
+side quest.
 
 **4. Implement.**
 Branch `fix/<issue-number>-<short-slug>`. One commit per issue — a chain of two issues is
