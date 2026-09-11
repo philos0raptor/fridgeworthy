@@ -23,14 +23,24 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           xcodebuild -version
 
-      # Config/Secrets.swift is gitignored, so a fresh checkout cannot compile:
-      # AppConfig references Secrets and the error ("cannot find 'Secrets' in scope")
-      # says nothing about secrets. The committed template carries placeholder values,
-      # which is all a compile needs — no real credentials are involved.
-      - name: Provide placeholder Secrets.swift
+      # Three files a fresh checkout does not have, because the real ones are gitignored:
+      # Config/Secrets.swift and both xcconfigs, which the project references as base
+      # configurations. Missing either kind fails the build with an error that does not
+      # mention configuration at all — "cannot find 'Secrets' in scope", or "Unable to
+      # open base configuration reference file".
+      #
+      # scripts/bootstrap-secrets.sh cannot help here: it copies from another checkout,
+      # and CI has none. The committed templates carry placeholders, which is all a
+      # compile needs — no real credentials are involved.
+      - name: Materialise gitignored config from templates
         run: |
-          cd fridgeworthy/fridgeworthy/Config
-          cp Secrets.swift.template Secrets.swift
+          set -euo pipefail
+          shopt -s globstar nullglob
+          for template in **/*.template; do
+            target="${template%.template}"
+            cp "$template" "$target"
+            echo "created $target"
+          done
 
       - name: Build
         run: |
