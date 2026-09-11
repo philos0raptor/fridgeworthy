@@ -126,12 +126,17 @@ final class SupabaseService {
 
     // MARK: - Wallpaper Generation
 
-    func generateWallpaper(childID: UUID, styleTemplateID: UUID) async throws -> UUID {
+    /// Starts a wallpaper generation job.
+    ///
+    /// Identifies the style by **slug**, not id. A locally-seeded template carries a
+    /// client-generated UUID the server has never seen, so sending an id 404s every time
+    /// (see `003_style_template_slugs.sql`).
+    func generateWallpaper(childID: UUID, styleSlug: String) async throws -> UUID {
         let response: GenerateWallpaperResponse = try await client.functions.invoke(
             "generate-wallpaper",
             options: .init(body: [
                 "child_id": childID.uuidString,
-                "style_template_id": styleTemplateID.uuidString,
+                "style_slug": styleSlug,
             ])
         )
         return response.wallpaperID
@@ -151,6 +156,7 @@ final class SupabaseService {
 
 struct StyleTemplateDTO: Codable, Identifiable, Sendable {
     let id: UUID
+    let slug: String
     let name: String
     let description: String
     let previewImageURL: String?
@@ -160,7 +166,7 @@ struct StyleTemplateDTO: Codable, Identifiable, Sendable {
     let sortOrder: Int
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description
+        case id, slug, name, description
         case previewImageURL = "preview_image_url"
         case promptTemplate = "prompt_template"
         case negativePrompt = "negative_prompt"
