@@ -33,14 +33,16 @@ jobs:
       # and CI has none. The committed templates carry placeholders, which is all a
       # compile needs — no real credentials are involved.
       - name: Materialise gitignored config from templates
+        # find rather than a ** glob: the runner's /bin/bash is 3.2, which has no
+        # globstar, and the failure ("invalid shell option name") reads like a typo.
         run: |
           set -euo pipefail
-          shopt -s globstar nullglob
-          for template in **/*.template; do
-            target="${template%.template}"
-            cp "$template" "$target"
-            echo "created $target"
-          done
+          find . -name '*.template' -not -path './.git/*' -print0 |
+            while IFS= read -r -d '' template; do
+              target="${template%.template}"
+              cp "$template" "$target"
+              echo "created $target"
+            done
 
       - name: Build
         run: |
