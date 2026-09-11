@@ -28,3 +28,6 @@ fridgeworthy/fridgeworthy/Config/Secrets.swift
 
 # Supabase local
 supabase/.temp/
+
+# Agent worktrees (created by Claude Code, never committed)
+.claude/worktrees/
