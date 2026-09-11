@@ -7,8 +7,13 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
 
     // DEBUG-only local bypass. Never compiled into Release builds.
+    //
+    // Leave this false. When true, `authService.currentUserID` stays nil, so every
+    // Supabase write is rejected by RLS and the upload path is never exercised — the
+    // app looks like it works while nothing reaches Postgres. To get a real session,
+    // use the "Use email" button, which opens the debug sign-in sheet in DEBUG builds.
     #if DEBUG
-    private let debugSkipAuth = true
+    private let debugSkipAuth = false
     #else
     private let debugSkipAuth = false
     #endif
