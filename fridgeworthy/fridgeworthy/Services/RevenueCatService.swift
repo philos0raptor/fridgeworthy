@@ -5,6 +5,16 @@ import Observation
 /// Manages subscription state via RevenueCat.
 @Observable
 final class RevenueCatService {
+    enum PurchaseError: LocalizedError {
+        case notConfigured
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: return "Purchases aren't available right now."
+            }
+        }
+    }
+
     var isProUser = false
 
     func checkSubscriptionStatus() async {
@@ -35,6 +45,7 @@ final class RevenueCatService {
     }
 
     func restorePurchases() async throws {
+        guard Purchases.isConfigured else { throw PurchaseError.notConfigured }
         let customerInfo = try await Purchases.shared.restorePurchases()
         isProUser = customerInfo.entitlements["pro"]?.isActive == true
     }

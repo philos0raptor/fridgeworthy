@@ -94,10 +94,7 @@ struct PaywallView: View {
                             Text("·")
                                 .foregroundStyle(FW.Color.ink4)
                             Button("Restore purchases") {
-                                Task {
-                                    try? await revenueCatService.restorePurchases()
-                                    if revenueCatService.isProUser { dismiss() }
-                                }
+                                Task { await restore() }
                             }
                             .foregroundStyle(FW.Color.accent)
                         }
@@ -264,6 +261,17 @@ struct PaywallView: View {
         do {
             let success = try await revenueCatService.purchase(package: package)
             if success { dismiss() }
+        } catch {
+            purchaseError = error.localizedDescription
+        }
+    }
+
+    private func restore() async {
+        purchaseError = nil
+
+        do {
+            try await revenueCatService.restorePurchases()
+            if revenueCatService.isProUser { dismiss() }
         } catch {
             purchaseError = error.localizedDescription
         }
