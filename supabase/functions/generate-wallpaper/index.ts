@@ -5,6 +5,17 @@ const FAL_API_KEY = Deno.env.get("FAL_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Text-to-image. NOT flux-pro/kontext, which is an image *editing* model and rejects
+// any request without an `image_url` — the pipeline feeds it a description, not a
+// picture, so kontext could never have worked here.
+const FAL_MODEL = "fal-ai/flux-pro/v1.1";
+
+// fal snaps dimensions to multiples of 64 and caps a side at 1440, so the iPhone's
+// 1170x2532 is not reachable. 640x1440 is the closest ratio it will honour (0.444 vs
+// the device's 0.462); anything taller comes back clamped to a squarer image.
+const IMAGE_WIDTH = 640;
+const IMAGE_HEIGHT = 1440;
+
 interface RequestBody {
   child_id: string;
   /**
@@ -101,10 +112,17 @@ serve(async (req) => {
       .replace("{color_palette}", colorPalettes || "warm pastels")
       .replace("{child_name}", child.name)
       .replace("{aspect_ratio}", "9:19.5 aspect ratio")
-      .replace("{resolution}", "1170x2532 pixels");
+      .replace("{resolution}", `${IMAGE_WIDTH}x${IMAGE_HEIGHT} pixels`);
 
-    // Call fal.ai FLUX Kontext Pro
-    const falResponse = await fetch("https://queue.fal.run/fal-ai/flux-pro/kontext", {
+    // Submit to the fal.ai queue.
+    //
+    // This endpoint returns a request *handle* — {request_id, status_url, response_url} —
+    // never the images. Reading `images[0].url` here is what made every generation fail
+    // with "No image in response". Resolving the handle is check-wallpaper's job.
+    //
+    // Submitting and returning also keeps image generation off this function's wall
+    // clock; doing the generate/download/upload inline would time out on a real render.
+    const falResponse = await fetch(`https://queue.fal.run/${FAL_MODEL}`, {
       method: "POST",
       headers: {
         Authorization: `Key ${FAL_API_KEY}`,
@@ -113,7 +131,7 @@ serve(async (req) => {
       body: JSON.stringify({
         prompt,
         negative_prompt: style.negative_prompt,
-        image_size: { width: 1170, height: 2532 },
+        image_size: { width: IMAGE_WIDTH, height: IMAGE_HEIGHT },
         num_images: 1,
         guidance_scale: 7.5,
         num_inference_steps: 28,
@@ -131,51 +149,33 @@ serve(async (req) => {
     }
 
     const falResult = await falResponse.json();
-    const generatedImageUrl = falResult.images?.[0]?.url;
 
-    if (!generatedImageUrl) {
+    if (!falResult.request_id) {
+      const detail = `Queue accepted the request but returned no request_id: ${JSON.stringify(falResult).slice(0, 200)}`;
       await supabase
         .from("wallpapers")
-        .update({ status: "failed", error_message: "No image in response" })
+        .update({ status: "failed", error_message: detail })
         .eq("id", wallpaper.id);
 
-      return new Response(JSON.stringify({ error: "No image generated" }), { status: 502 });
+      return new Response(JSON.stringify({ error: "Generation failed", details: detail }), { status: 502 });
     }
 
-    // Download the generated image and upload to Supabase Storage
-    const imageResponse = await fetch(generatedImageUrl);
-    const imageBlob = await imageResponse.blob();
-    const imageBuffer = await imageBlob.arrayBuffer();
+    // fal returns status_url/response_url explicitly; fall back to the documented shape
+    // so a missing field degrades to a working URL rather than a stuck job.
+    const requestBase =
+      `https://queue.fal.run/${FAL_MODEL.split("/").slice(0, 2).join("/")}/requests/${falResult.request_id}`;
 
-    const storagePath = `${child_id}/${wallpaper.id}.png`;
-    const { error: uploadError } = await supabase.storage
-      .from("wallpapers")
-      .upload(storagePath, imageBuffer, { contentType: "image/png" });
-
-    if (uploadError) {
-      await supabase
-        .from("wallpapers")
-        .update({ status: "failed", error_message: "Upload failed" })
-        .eq("id", wallpaper.id);
-
-      return new Response(JSON.stringify({ error: "Failed to store wallpaper" }), { status: 500 });
-    }
-
-    // Get public URL
-    const { data: publicURL } = supabase.storage.from("wallpapers").getPublicUrl(storagePath);
-
-    // Update wallpaper record to complete
     await supabase
       .from("wallpapers")
       .update({
-        status: "complete",
-        image_url: publicURL.publicUrl,
-        completed_at: new Date().toISOString(),
+        fal_request_id: falResult.request_id,
+        fal_status_url: falResult.status_url ?? `${requestBase}/status`,
+        fal_response_url: falResult.response_url ?? requestBase,
       })
       .eq("id", wallpaper.id);
 
     return new Response(
-      JSON.stringify({ wallpaper_id: wallpaper.id, status: "complete", image_url: publicURL.publicUrl }),
+      JSON.stringify({ wallpaper_id: wallpaper.id, status: "processing" }),
       { headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
