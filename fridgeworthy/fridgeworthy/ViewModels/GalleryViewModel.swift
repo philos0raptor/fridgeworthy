@@ -23,10 +23,16 @@ final class GalleryViewModel {
             let localIDs = Set(child.artworks.map(\.id))
 
             for dto in remoteArtworks {
+                // The bucket is private, so a stored path renders only once signed.
+                // A failure here must not drop the artwork — the record is still valid,
+                // it just has no displayable URL this pass.
+                let signedURL = try? await supabaseService.signedArtworkURL(path: dto.storagePath)
+
                 if localIDs.contains(dto.id) {
                     // Update existing local record with remote data
                     if let local = child.artworks.first(where: { $0.id == dto.id }) {
-                        local.remoteImageURL = dto.imageURL
+                        local.storagePath = dto.storagePath
+                        if let signedURL { local.remoteImageURL = signedURL }
                         if let desc = dto.description {
                             local.artworkDescription = desc
                         }
@@ -36,7 +42,8 @@ final class GalleryViewModel {
                     let artwork = Artwork(
                         id: dto.id,
                         localImagePath: "",
-                        remoteImageURL: dto.imageURL,
+                        storagePath: dto.storagePath,
+                        remoteImageURL: signedURL,
                         backgroundRemoved: true
                     )
                     artwork.artworkDescription = dto.description

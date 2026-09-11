@@ -26,13 +26,30 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Artwork not found" }), { status: 404 });
     }
 
-    // Download the image from storage
-    const imageUrl = artwork.image_url;
-    const imageResponse = await fetch(imageUrl);
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const base64Image = btoa(
-      new Uint8Array(imageBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-    );
+    // Download the image from storage.
+    //
+    // `artworks.image_url` holds a storage *path*, not a URL (see 002). The bucket is
+    // private, so fetching a URL would 400; this client carries the service-role key and
+    // reads the object directly, which also avoids depending on a signed URL that expires.
+    const { data: imageBlob, error: downloadError } = await supabase.storage
+      .from("artworks")
+      .download(artwork.image_url);
+
+    if (downloadError || !imageBlob) {
+      return new Response(
+        JSON.stringify({ error: "Could not read artwork image", details: downloadError?.message }),
+        { status: 502 }
+      );
+    }
+
+    const imageBuffer = await imageBlob.arrayBuffer();
+    // Chunked so a large image cannot blow the argument limit on String.fromCharCode.
+    const bytes = new Uint8Array(imageBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    const base64Image = btoa(binary);
 
     // Call Claude API for description
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {

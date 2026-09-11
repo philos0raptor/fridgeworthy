@@ -11,6 +11,8 @@ final class CaptureViewModel {
     var showBeforeAfter = false
     var errorMessage: String?
     var uploadError: String?
+    /// Set when the AI description call fails. Non-blocking: the artwork still saved.
+    var descriptionError: String?
 
     private let backgroundRemovalService = BackgroundRemovalService()
     private let supabaseService = SupabaseService.shared
@@ -63,15 +65,23 @@ final class CaptureViewModel {
         uploadError = nil
 
         do {
-            let remoteURL = try await supabaseService.uploadArtwork(imageData: pngData, childID: child.id)
-            _ = try await supabaseService.insertArtwork(id: artwork.id, childID: child.id, imageURL: remoteURL)
-            artwork.remoteImageURL = remoteURL
+            let storagePath = try await supabaseService.uploadArtwork(imageData: pngData, childID: child.id)
+            _ = try await supabaseService.insertArtwork(id: artwork.id, childID: child.id, storagePath: storagePath)
+
+            artwork.storagePath = storagePath
+            artwork.remoteImageURL = try await supabaseService.signedArtworkURL(path: storagePath)
 
             // Fire AI description in background (non-blocking)
             let artworkID = artwork.id
             Task.detached { @MainActor in
-                if let description = try? await self.supabaseService.describeArtwork(artworkID: artworkID) {
-                    artwork.artworkDescription = description
+                do {
+                    artwork.artworkDescription = try await self.supabaseService.describeArtwork(artworkID: artworkID)
+                } catch {
+                    // Not fatal — the artwork is saved either way. But a swallowed failure
+                    // here leaves `description` null, and generate-wallpaper then falls back
+                    // to "colorful children's drawing" for every prompt, which looks like
+                    // mediocre output rather than a broken call.
+                    self.descriptionError = error.localizedDescription
                 }
             }
 
