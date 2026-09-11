@@ -142,13 +142,17 @@ final class SupabaseService {
         return response.wallpaperID
     }
 
+    /// Asks the server to resolve an in-flight generation, returning the current status.
+    ///
+    /// This invokes `check-wallpaper` rather than reading the table, because the row does
+    /// not settle on its own: `generate-wallpaper` submits to the fal queue and returns a
+    /// handle, and something authenticated has to ask fal whether the render finished and
+    /// copy the result into storage. Polling the table directly would spin until timeout.
     func pollWallpaperStatus(jobID: UUID) async throws -> WallpaperStatusDTO {
-        try await client.from("wallpapers")
-            .select("id,status,image_url,error_message")
-            .eq("id", value: jobID.uuidString)
-            .single()
-            .execute()
-            .value
+        try await client.functions.invoke(
+            "check-wallpaper",
+            options: .init(body: ["wallpaper_id": jobID.uuidString])
+        )
     }
 }
 
