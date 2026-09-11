@@ -57,11 +57,19 @@ serve(async (req) => {
       headers: {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "server-side-fallback-2026-07-01",
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 100,
+        model: "claude-opus-5",
+        // Thinking is on by default, and it draws from max_tokens. The old value of 100
+        // was sized for the visible caption alone and would truncate mid-reasoning.
+        max_tokens: 2048,
+        // A 15-word caption is not hard work; low effort keeps cost and latency down
+        // without disabling thinking, which has its own failure modes.
+        output_config: { effort: "low" },
+        // Route around a safety refusal rather than returning nothing for a drawing.
+        fallbacks: "default",
         messages: [
           {
             role: "user",
@@ -90,7 +98,27 @@ serve(async (req) => {
     }
 
     const claudeResult = await claudeResponse.json();
-    const description = claudeResult.content?.[0]?.text?.trim() || "";
+
+    if (claudeResult.stop_reason === "refusal") {
+      return new Response(
+        JSON.stringify({ error: "Image description was declined", details: claudeResult.stop_details }),
+        { status: 502 }
+      );
+    }
+
+    // Find the text block rather than taking content[0]: with thinking enabled the first
+    // block is a thinking block, whose text is empty by default. Indexing blindly would
+    // store "" as the description and look like a successful call.
+    const description = claudeResult.content
+      ?.find((block: { type: string }) => block.type === "text")
+      ?.text?.trim() || "";
+
+    if (!description) {
+      return new Response(
+        JSON.stringify({ error: "Model returned no description" }),
+        { status: 502 }
+      );
+    }
 
     // Update artwork with description
     await supabase
