@@ -4,7 +4,15 @@ import SwiftData
 @MainActor
 enum StyleTemplateSyncService {
 
+    /// Set when the last `sync` could not reach the server. The local seed still runs, so
+    /// the picker works — but the seeded rows carry client-generated IDs the server has
+    /// never seen, and generation will 404 on them. Callers should surface this rather
+    /// than let a styled-but-unusable picker look healthy.
+    private(set) static var lastSyncError: String?
+
     static func sync(context: ModelContext) async {
+        lastSyncError = nil
+
         do {
             let remoteDTOs = try await SupabaseService.shared.fetchStyleTemplates()
 
@@ -42,7 +50,10 @@ enum StyleTemplateSyncService {
                 }
             }
         } catch {
-            // Silently fail — fall through to local seed if we have nothing cached
+            // Fall through to the local seed so the picker is still usable offline — but
+            // record why, because the seeded templates cannot generate. Discarding this
+            // error is what let a broken sync masquerade as a working style picker.
+            lastSyncError = error.localizedDescription
         }
 
         seedDefaultsIfEmpty(context: context)

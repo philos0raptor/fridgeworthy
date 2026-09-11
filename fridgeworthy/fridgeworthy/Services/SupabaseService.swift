@@ -144,7 +144,7 @@ final class SupabaseService {
 
     func pollWallpaperStatus(jobID: UUID) async throws -> WallpaperStatusDTO {
         try await client.from("wallpapers")
-            .select()
+            .select("id,status,image_url,error_message")
             .eq("id", value: jobID.uuidString)
             .single()
             .execute()
@@ -209,10 +209,14 @@ struct WallpaperStatusDTO: Codable, Sendable {
     let id: UUID
     let status: String
     let imageURL: String?
+    /// Written by `generate-wallpaper` when a job fails. Previously never read, which is
+    /// why a failure surfaced as a generic message instead of the actual cause.
+    let errorMessage: String?
 
     enum CodingKeys: String, CodingKey {
         case id, status
         case imageURL = "image_url"
+        case errorMessage = "error_message"
     }
 }
 

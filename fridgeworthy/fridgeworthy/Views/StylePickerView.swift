@@ -8,6 +8,7 @@ struct StylePickerView: View {
     @Query(sort: \StyleTemplate.sortOrder) private var styles: [StyleTemplate]
     @State private var selectedStyle: StyleTemplate?
     @State private var showPaywall = false
+    @State private var styleSyncError: String?
 
     let child: Child
     let onStyleSelected: (StyleTemplate) -> Void
@@ -38,6 +39,17 @@ struct StylePickerView: View {
                             .foregroundStyle(FW.Color.ink3)
                     }
                     .padding(.bottom, 16)
+                }
+
+                // A failed sync leaves locally-seeded styles the server has never seen,
+                // so generation would 404. Say so rather than let the picker look fine.
+                if styleSyncError != nil {
+                    Label("Couldn't refresh styles. Generation may not work until you reconnect.", systemImage: "exclamationmark.triangle.fill")
+                        .font(FW.Font.caption(12))
+                        .foregroundStyle(FW.Color.ink3)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, FW.Spacing.md)
+                        .padding(.bottom, 12)
                 }
 
                 // Style grid
@@ -87,6 +99,7 @@ struct StylePickerView: View {
         }
         .task {
             await StyleTemplateSyncService.sync(context: modelContext)
+            styleSyncError = StyleTemplateSyncService.lastSyncError
             if selectedStyle == nil {
                 selectedStyle = styles.first
             }

@@ -43,8 +43,15 @@ final class WallpaperGenerationViewModel {
         }
     }
 
+    /// A poll can fail transiently — a dropped connection, a momentary 5xx. Retrying is
+    /// right. But retrying *forever* is what turned a permanent failure into a silent
+    /// two-minute wait, so give up once the failures stop looking transient.
+    private static let maxConsecutivePollFailures = 3
+
     private func pollForCompletion(jobID: UUID, job: GenerationJob, child: Child, style: StyleTemplate, context: ModelContext) async {
         let maxAttempts = 60
+        var consecutiveFailures = 0
+
         for _ in 0..<maxAttempts {
             guard !Task.isCancelled else {
                 generationStatus = .pending
@@ -62,6 +69,7 @@ final class WallpaperGenerationViewModel {
 
             do {
                 let status = try await supabaseService.pollWallpaperStatus(jobID: jobID)
+                consecutiveFailures = 0
 
                 if status.status == "complete" {
                     generatedWallpaperURL = status.imageURL
@@ -82,12 +90,24 @@ final class WallpaperGenerationViewModel {
                 } else if status.status == "failed" {
                     generationStatus = .failed
                     job.status = .failed
-                    errorMessage = "Wallpaper generation failed. Please try again."
+                    // Prefer the server's reason. generate-wallpaper writes error_message
+                    // on every failure path, and "No image in response" tells you far more
+                    // than a generic apology does.
+                    errorMessage = status.errorMessage ?? "Wallpaper generation failed. Please try again."
                     isGenerating = false
                     return
                 }
             } catch {
-                // Continue polling on transient errors
+                guard !Task.isCancelled else { return }
+
+                consecutiveFailures += 1
+                if consecutiveFailures >= Self.maxConsecutivePollFailures {
+                    errorMessage = error.localizedDescription
+                    generationStatus = .failed
+                    job.status = .failed
+                    isGenerating = false
+                    return
+                }
             }
         }
 
