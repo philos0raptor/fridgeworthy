@@ -22,7 +22,7 @@ final class WallpaperGenerationViewModel {
             do {
                 let jobID = try await supabaseService.generateWallpaper(
                     childID: child.id,
-                    styleTemplateID: style.id
+                    styleSlug: style.slug
                 )
 
                 let job = GenerationJob(

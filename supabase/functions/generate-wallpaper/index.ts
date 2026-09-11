@@ -7,12 +7,21 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 interface RequestBody {
   child_id: string;
-  style_template_id: string;
+  /**
+   * Styles are addressed by slug, never by id. The iOS client seeds its own copies of
+   * the style templates with client-generated UUIDs, so an id sent from the app can
+   * never match a row here — see 003_style_template_slugs.sql.
+   */
+  style_slug: string;
 }
 
 serve(async (req) => {
   try {
-    const { child_id, style_template_id }: RequestBody = await req.json();
+    const { child_id, style_slug }: RequestBody = await req.json();
+
+    if (!style_slug) {
+      return new Response(JSON.stringify({ error: "style_slug is required" }), { status: 400 });
+    }
 
     // Create admin client for service-level operations
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -38,11 +47,14 @@ serve(async (req) => {
     const { data: style, error: styleError } = await supabase
       .from("style_templates")
       .select("*")
-      .eq("id", style_template_id)
+      .eq("slug", style_slug)
       .single();
 
     if (styleError || !style) {
-      return new Response(JSON.stringify({ error: "Style template not found" }), { status: 404 });
+      return new Response(
+        JSON.stringify({ error: "Style template not found", slug: style_slug }),
+        { status: 404 }
+      );
     }
 
     // Fetch recent artworks (4-8)
@@ -62,7 +74,7 @@ serve(async (req) => {
       .from("wallpapers")
       .insert({
         child_id,
-        style_template_id,
+        style_template_id: style.id,
         status: "processing",
         artwork_ids: artworks.map((a: any) => a.id),
       })

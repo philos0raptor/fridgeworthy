@@ -4,6 +4,13 @@ import SwiftData
 @Model
 final class StyleTemplate {
     @Attribute(.unique) var id: UUID
+    /// Stable identity shared with the server. `id` is generated independently on each
+    /// side and can never match, so every cross-boundary reference uses the slug.
+    ///
+    /// Defaulted rather than made `.unique` so existing local stores migrate without a
+    /// constraint violation — rows seeded before slugs existed carry "" and are adopted
+    /// by name on the next sync.
+    var slug: String = ""
     var name: String
     var styleDescription: String
     var previewImageURL: String?
@@ -15,6 +22,7 @@ final class StyleTemplate {
 
     init(
         id: UUID = UUID(),
+        slug: String = "",
         name: String,
         styleDescription: String,
         previewImageURL: String? = nil,
@@ -25,6 +33,7 @@ final class StyleTemplate {
         createdAt: Date = Date()
     ) {
         self.id = id
+        self.slug = slug
         self.name = name
         self.styleDescription = styleDescription
         self.previewImageURL = previewImageURL
