@@ -58,22 +58,41 @@ final class SupabaseService {
 
     // MARK: - Artworks
 
+    /// How long a minted artwork URL stays valid. Long enough to outlive any screen
+    /// that renders it, short enough that a leaked URL stops working the same day.
+    private static let artworkURLLifetime = 60 * 60 * 8
+
+    /// Uploads artwork and returns its **storage path** — not a URL.
+    ///
+    /// The path is `{profileID}/{childID}/{uuid}.png`. That leading profile segment is
+    /// what the storage policy checks (see `002_scope_artwork_storage.sql`), so uploading
+    /// outside your own prefix is rejected by Postgres rather than trusted from the client.
     func uploadArtwork(imageData: Data, childID: UUID) async throws -> String {
-        let filename = "\(childID.uuidString)/\(UUID().uuidString).png"
+        let profileID = try await client.auth.session.user.id
+        let path = "\(profileID.uuidString)/\(childID.uuidString)/\(UUID().uuidString).png"
 
         try await client.storage.from("artworks")
-            .upload(filename, data: imageData, options: .init(contentType: "image/png"))
+            .upload(path, data: imageData, options: .init(contentType: "image/png"))
 
-        let url = try client.storage.from("artworks").getPublicURL(path: filename)
+        return path
+    }
+
+    /// Mints a short-lived signed URL for a stored artwork path.
+    ///
+    /// The bucket is private, so this is the only way to render one. Signed URLs expire,
+    /// which is why the path — not the URL — is what gets persisted.
+    func signedArtworkURL(path: String) async throws -> String {
+        let url = try await client.storage.from("artworks")
+            .createSignedURL(path: path, expiresIn: Self.artworkURLLifetime)
         return url.absoluteString
     }
 
-    func insertArtwork(id: UUID, childID: UUID, imageURL: String) async throws -> ArtworkDTO {
+    func insertArtwork(id: UUID, childID: UUID, storagePath: String) async throws -> ArtworkDTO {
         try await client.from("artworks")
             .insert([
                 "id": id.uuidString,
                 "child_id": childID.uuidString,
-                "image_url": imageURL,
+                "image_url": storagePath,
             ])
             .select()
             .single()
@@ -168,13 +187,15 @@ struct ChildDTO: Codable, Identifiable, Sendable {
 struct ArtworkDTO: Codable, Identifiable, Sendable {
     let id: UUID
     let childID: UUID
-    let imageURL: String
+    /// Storage object path, not a URL — `image_url` keeps its column name for
+    /// compatibility, but holds a path. Sign it with `signedArtworkURL(path:)` to render.
+    let storagePath: String
     let description: String?
 
     enum CodingKeys: String, CodingKey {
         case id, description
         case childID = "child_id"
-        case imageURL = "image_url"
+        case storagePath = "image_url"
     }
 }
 
