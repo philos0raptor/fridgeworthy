@@ -5,6 +5,10 @@ struct SignInView: View {
     @Environment(AuthService.self) private var authService
     @State private var errorMessage: String?
 
+    #if DEBUG
+    @State private var showDebugEmailSignIn = false
+    #endif
+
     var body: some View {
         ZStack {
             // Cream gradient background
@@ -86,7 +90,11 @@ struct SignInView: View {
 
                     // Email button
                     Button {
+                        #if DEBUG
+                        showDebugEmailSignIn = true
+                        #else
                         // TODO: email sign-in flow
+                        #endif
                     } label: {
                         Text("Use email")
                             .font(.system(size: 17, weight: .semibold))
@@ -130,6 +138,11 @@ struct SignInView: View {
             }
             .padding(.horizontal, 28)
         }
+        #if DEBUG
+        .sheet(isPresented: $showDebugEmailSignIn) {
+            DebugEmailSignInView()
+        }
+        #endif
     }
 
     // MARK: - Artwork Card Deck
