@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (iOS Simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest installed Xcode
+        run: |
+          ls /Applications | grep -i '^Xcode' || true
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      # Config/Secrets.swift is gitignored, so a fresh checkout cannot compile:
+      # AppConfig references Secrets and the error ("cannot find 'Secrets' in scope")
+      # says nothing about secrets. The committed template carries placeholder values,
+      # which is all a compile needs — no real credentials are involved.
+      - name: Provide placeholder Secrets.swift
+        run: |
+          cd fridgeworthy/fridgeworthy/Config
+          cp Secrets.swift.template Secrets.swift
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project fridgeworthy/fridgeworthy.xcodeproj \
+            -scheme fridgeworthy \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            build 2>&1 | tee build.log | grep -E '(error|warning):|BUILD' || true
+          grep -q '\*\* BUILD SUCCEEDED \*\*' build.log
+
+      - name: Report warnings
+        if: always()
+        run: |
+          # Counts are only comparable clean-to-clean, so report unique sources rather
+          # than raw lines — see CLAUDE.md.
+          echo "### Build warnings" >> "$GITHUB_STEP_SUMMARY"
+          grep 'warning:' build.log \
+            | sed -E 's#^.*/fridgeworthy/##' \
+            | sort -u \
+            | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || echo "none" >> "$GITHUB_STEP_SUMMARY"
+
+  backend-contract:
+    name: Backend contract tests
+    runs-on: ubuntu-latest
+    # Runs only where the repository secrets are available. Forked pull requests do not
+    # get them, and a skipped job is more honest than one that silently passes nothing.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check whether backend credentials are configured
+        id: creds
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          if [ -n "$SUPABASE_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "SUPABASE_URL is not set — skipping. See tests/README.md." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Free checks only. The paid checks call Anthropic and fal and cost real money per
+      # run, so they stay opt-in via workflow_dispatch rather than firing on every push.
+      - name: Run contract tests
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TEST_ACCOUNT_EMAIL: ${{ secrets.TEST_ACCOUNT_EMAIL }}
+          TEST_ACCOUNT_PASSWORD: ${{ secrets.TEST_ACCOUNT_PASSWORD }}
+        run: python3 tests/backend_contract_test.py
