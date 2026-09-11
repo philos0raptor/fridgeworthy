@@ -31,3 +31,8 @@ supabase/.temp/
 
 # Agent worktrees (created by Claude Code, never committed)
 .claude/worktrees/
+
+# Env files (never commit — supabase CLI writes supabase/.env for function secrets)
+.env
+.env.*
+!.env.example
