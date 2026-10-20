@@ -26,6 +26,7 @@ struct RootView: View {
                 SignInView()
             }
         }
+        .statusBarHidden(true)
         .task {
             await authService.restoreSession()
             if authService.isAuthenticated, let userID = authService.currentUserID {

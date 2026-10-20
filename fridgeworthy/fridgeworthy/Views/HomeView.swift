@@ -1,86 +1,92 @@
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct HomeView: View {
+    var addChildRequestToken: UUID?
+    var onSelectDate: ((Date, Child?) -> Void)? = nil
+
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthService.self) private var authService
     @Query(sort: \Child.createdAt) private var children: [Child]
     @Query private var profiles: [UserProfile]
+
+    @State private var visibleMonth = Date()
+    @State private var selectedChild: Child?
+    @State private var showMonthPicker = false
     @State private var showAddChild = false
     @State private var newChildName = ""
-    @State private var selectedChild: Child?
-    @State private var stylePickerChild: Child?
-    @State private var wallpaperFlow: WallpaperFlow?
 
-    struct WallpaperFlow: Hashable {
-        let child: Child
-        let style: StyleTemplate
-
-        static func == (lhs: WallpaperFlow, rhs: WallpaperFlow) -> Bool {
-            lhs.child.id == rhs.child.id && lhs.style.id == rhs.style.id
-        }
-
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(child.id)
-            hasher.combine(style.id)
-        }
-    }
+    private let calendar = Calendar.current
 
     private var userProfile: UserProfile? { profiles.first }
 
-    private var filteredArtworks: [Artwork] {
-        let artworks: [Artwork]
-        if let child = selectedChild {
-            artworks = child.artworks
-        } else {
-            artworks = children.flatMap(\.artworks)
+    private var displayedArtworks: [Artwork] {
+        if let selectedChild {
+            return selectedChild.artworks
         }
-        return artworks.sorted { $0.createdAt > $1.createdAt }
+        return children.flatMap(\.artworks)
     }
 
-    private var featuredArtwork: Artwork? { filteredArtworks.first }
-    private var recentArtworks: [Artwork] { Array(filteredArtworks.dropFirst().prefix(10)) }
-    private var totalPieces: Int { children.flatMap(\.artworks).count }
+    private var artworksByDay: [Date: [Artwork]] {
+        Dictionary(grouping: displayedArtworks) { artwork in
+            MonthCalendar.dayKey(for: artwork.createdAt, calendar: calendar)
+        }
+    }
+
+    private var monthDays: [MonthDay?] {
+        MonthCalendar.days(for: visibleMonth, calendar: calendar)
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                greetingSection
-                    .padding(.top, 16)
-                childChipRail
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                FWPaperBackground()
 
-                if children.isEmpty {
-                    emptyState
-                } else {
-                    if let featured = featuredArtwork {
-                        featuredSection(featured)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        monthHeader
+                            .padding(.horizontal, 28)
+
+                        childFilterRail
+                            .padding(.top, 10)
+
+                        calendarGrid
+                            .padding(.horizontal, 24)
+                            .padding(.top, 24)
+
+                        if children.isEmpty {
+                            firstChildPrompt
+                                .padding(.top, 18)
+                        }
+
+                        Color.clear.frame(height: 16)
                     }
-                    if !recentArtworks.isEmpty {
-                        recentSection
-                    }
+                    .padding(.top, HomeTopLayout.monthTop(safeAreaTop: geometry.safeAreaInsets.top))
                 }
+                .scrollBounceBehavior(.basedOnSize)
+
+                FWHandwrittenStatusBar(inkColor: FW.Color.onboardingInk, verticalOffset: 0)
+                    .padding(.horizontal, 24)
+                    .frame(height: geometry.safeAreaInsets.top)
             }
-            .padding(.bottom, 32)
-            .frame(maxWidth: .infinity)
+            .ignoresSafeArea(.container, edges: .top)
         }
-        .clipped()
-        .background(FW.Color.bg)
+        .statusBarHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .alert("Add a Child", isPresented: $showAddChild) {
             TextField("Child's name", text: $newChildName)
             Button("Add") { addChild() }
             Button("Cancel", role: .cancel) { newChildName = "" }
         } message: {
-            Text("Enter your child's name to get started")
+            Text("Who is making the next fridge-worthy masterpiece?")
         }
-        .sheet(item: $stylePickerChild) { child in
-            StylePickerView(child: child) { style in
-                stylePickerChild = nil
-                wallpaperFlow = WallpaperFlow(child: child, style: style)
+        .sheet(isPresented: $showMonthPicker) {
+            FWMonthPicker(selection: $visibleMonth, calendar: calendar)
+        }
+        .onChange(of: addChildRequestToken) { _, newValue in
+            if newValue != nil {
+                showAddChild = true
             }
-        }
-        .navigationDestination(item: $wallpaperFlow) { flow in
-            WallpaperView(child: flow.child, style: flow.style)
         }
         .onAppear {
             if userProfile == nil {
@@ -89,268 +95,197 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Greeting
+    private var monthHeader: some View {
+        ZStack {
+            Button {
+                showMonthPicker = true
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text(visibleMonth.formatted(.dateTime.month(.wide)))
+                        .font(FW.Font.heroDisplay(34, weight: .regular))
+                        .tracking(-1.1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(FW.Color.onboardingInk)
+                }
+                .foregroundStyle(FW.Color.onboardingInk)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Choose a different month and year")
 
-    private var greetingSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Hi, \(userProfile?.greeting ?? "there")")
-                .font(FW.Font.heroDisplay())
-                .tracking(-0.7)
+            if !MonthCalendar.isCurrentMonth(visibleMonth, calendar: calendar) {
+                HStack {
+                    Spacer()
 
-            Text("\(children.count) kid\(children.count == 1 ? "" : "s") · \(totalPieces) piece\(totalPieces == 1 ? "" : "s")")
-                .font(FW.Font.body(15))
-                .foregroundStyle(FW.Color.ink3)
+                    Button("Today") {
+                        withAnimation(.snappy(duration: 0.3)) {
+                            visibleMonth = Date()
+                        }
+                    }
+                    .font(FW.Font.caption(12, weight: .bold))
+                    .foregroundStyle(FW.Color.onboardingInk)
+                    .padding(.horizontal, 12)
+                    .frame(height: 38)
+                    .background(.white.opacity(0.74))
+                    .clipShape(Capsule())
+                }
+            }
         }
-        .padding(.horizontal, FW.Spacing.md)
+        .frame(minHeight: 44)
     }
 
-    // MARK: - Child Chip Rail
-
-    private var childChipRail: some View {
+    private var childFilterRail: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 FWAllChip(isActive: selectedChild == nil) {
                     selectedChild = nil
                 }
+
                 ForEach(children) { child in
                     FWChildChip(
                         emoji: child.avatarEmoji,
                         name: child.name,
+                        colorTint: FW.Color.childColor(id: child.id),
                         isActive: selectedChild?.id == child.id
                     ) {
                         selectedChild = child
                     }
                 }
 
-                // Add child button
                 Button {
                     showAddChild = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(FW.Color.ink3)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(FW.Color.onboardingInk)
                         .frame(width: 36, height: 36)
-                        .background(FW.Color.card)
+                        .background(.white.opacity(0.78))
                         .clipShape(Circle())
-                        .modifier(FW.Shadow.cardSoft())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add a child")
             }
-            .padding(.horizontal, FW.Spacing.md)
+            .padding(.horizontal, 28)
         }
     }
 
-    // MARK: - Empty State
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "hand.wave")
-                .font(.system(size: 48))
-                .foregroundStyle(FW.Color.accent.opacity(0.4))
-
-            Text("Welcome to Fridgeworthy!")
-                .font(FW.Font.sectionTitle())
-
-            Text("Add your child to start turning\ntheir artwork into wallpapers")
-                .font(FW.Font.body())
-                .foregroundStyle(FW.Color.ink3)
-                .multilineTextAlignment(.center)
-
-            FWButton(title: "Add Child", icon: "plus", style: .primary) {
-                showAddChild = true
-            }
-            .frame(width: 200)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 60)
-        .padding(.horizontal, FW.Spacing.md)
-    }
-
-    // MARK: - Featured Section
-
-    private func featuredSection(_ artwork: Artwork) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Eyebrow
-            Text("FEATURED THIS WEEK")
-                .font(FW.Font.micro())
-                .tracking(1.2)
-                .foregroundStyle(FW.Color.accent)
-                .padding(.horizontal, FW.Spacing.md)
-
-            // Featured card
-            VStack(alignment: .leading, spacing: 0) {
-                // Artwork image area
-                ZStack(alignment: .bottomLeading) {
-                    featuredArtworkImage(artwork)
-                        .frame(height: 280)
+    private var calendarGrid: some View {
+        VStack(spacing: 20) {
+            LazyVGrid(columns: columns, spacing: 0) {
+                ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
+                    Text(symbol)
+                        .font(FW.Font.caption(11, weight: .bold))
+                        .foregroundStyle(FW.Color.onboardingInk.opacity(0.72))
                         .frame(maxWidth: .infinity)
-                        .clipped()
-                        .background(
-                            LinearGradient(
-                                colors: [FW.Color.cream1, FW.Color.cream2],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .clipped()
-
-                    // Glass caption
-                    if let child = artwork.child {
-                        FWGlassCaptionPill(text: childAgeLabel(child).isEmpty ? child.name : "\(child.name), \(childAgeLabel(child))")
-                            .padding(12)
-                    }
                 }
-
-                // Card body
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(artwork.title ?? "Untitled Artwork")
-                        .font(FW.Font.cardTitle)
-                        .tracking(-0.5)
-
-                    if let desc = artwork.artworkDescription {
-                        Text(desc)
-                            .font(FW.Font.caption(13))
-                            .foregroundStyle(FW.Color.ink3)
-                            .lineLimit(1)
-                    }
-
-                    HStack(spacing: 12) {
-                        FWButton(title: "Make wallpaper", icon: "wand.and.stars", style: .primary) {
-                            stylePickerChild = artwork.child
-                        }
-
-                        if let url = shareURL(for: artwork) {
-                            ShareLink(item: url) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .font(.system(size: 17))
-                                    .foregroundStyle(FW.Color.ink)
-                                    .frame(width: 44, height: 44)
-                                    .background(FW.Color.surface2)
-                                    .clipShape(Circle())
-                            }
-                        }
-                    }
-                    .padding(.top, 4)
-                }
-                .padding(FW.Spacing.md)
             }
-            .background(FW.Color.card)
-            .clipShape(RoundedRectangle(cornerRadius: FW.Radius.cardLg, style: .continuous))
-            .modifier(FW.Shadow.cardHero())
-            .padding(.horizontal, FW.Spacing.md)
-        }
-    }
 
-    @ViewBuilder
-    private func featuredArtworkImage(_ artwork: Artwork) -> some View {
-        if let localImage = loadLocalImage(artwork) {
-            Color.clear
-                .overlay {
-                    Image(uiImage: localImage)
-                        .resizable()
-                        .scaledToFill()
-                }
-                .clipped()
-        } else if let remoteURL = artwork.remoteImageURL, let url = URL(string: remoteURL) {
-            Color.clear
-                .overlay {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        ProgressView()
-                    }
-                }
-                .clipped()
-        } else {
-            Image(systemName: "paintpalette.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(FW.Color.accent.opacity(0.2))
-        }
-    }
-
-    // MARK: - Recent Section
-
-    private var recentSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Recent")
-                    .font(.system(size: 19, weight: .bold))
-                Spacer()
-                Button("See all") {}
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(FW.Color.accent)
-            }
-            .padding(.horizontal, FW.Spacing.md)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(recentArtworks) { artwork in
-                        recentThumbnail(artwork)
-                    }
-                }
-                .padding(.horizontal, FW.Spacing.md)
-            }
-        }
-    }
-
-    private func recentThumbnail(_ artwork: Artwork) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Color.clear
-                .frame(width: 130, height: 130)
-                .overlay {
-                    if let localImage = loadLocalImage(artwork) {
-                        Image(uiImage: localImage)
-                            .resizable()
-                            .scaledToFill()
-                    } else if let remoteURL = artwork.remoteImageURL, let url = URL(string: remoteURL) {
-                        AsyncImage(url: url) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Rectangle().fill(FW.Color.cream1)
-                        }
+            LazyVGrid(columns: columns, spacing: calendarRowSpacing) {
+                ForEach(Array(monthDays.enumerated()), id: \.offset) { _, day in
+                    if let day {
+                        dayCell(day)
                     } else {
-                        Rectangle().fill(FW.Color.cream1)
-                            .overlay {
-                                Image(systemName: "photo")
-                                    .foregroundStyle(FW.Color.ink4)
-                            }
+                        Color.clear.frame(height: 44)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: FW.Radius.thumbnail, style: .continuous))
-
-            Text(artwork.title ?? "Untitled")
-                .font(FW.Font.caption(13, weight: .medium))
-                .foregroundStyle(FW.Color.ink)
-                .lineLimit(1)
-                .frame(width: 130, alignment: .leading)
-        }
-    }
-
-    // MARK: - Helpers
-
-    private func childAgeLabel(_ child: Child) -> String {
-        child.ageText ?? ""
-    }
-
-    private func loadLocalImage(_ artwork: Artwork) -> UIImage? {
-        guard !artwork.localImagePath.isEmpty else { return nil }
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let fileURL = documentsURL.appendingPathComponent(artwork.localImagePath)
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return UIImage(data: data)
-    }
-
-    private func shareURL(for artwork: Artwork) -> URL? {
-        if !artwork.localImagePath.isEmpty {
-            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            let fileURL = documentsURL.appendingPathComponent(artwork.localImagePath)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                return fileURL
             }
         }
-        if let remote = artwork.remoteImageURL {
-            return URL(string: remote)
+        .contentShape(Rectangle())
+        .simultaneousGesture(monthSwipeGesture)
+        .animation(.easeInOut(duration: 0.24), value: visibleMonth)
+    }
+
+    private func dayCell(_ day: MonthDay) -> some View {
+        let colors = markerColors(for: day.date)
+        return Button {
+            onSelectDate?(day.date, selectedChild)
+        } label: {
+            ZStack {
+                FWHandwrittenGlyphSequence(
+                    text: String(day.number),
+                    height: 29,
+                    inkColor: day.isToday ? FW.Color.today : FW.Color.onboardingInk
+                )
+                    .frame(width: 38, height: 34)
+
+                if !colors.isEmpty {
+                    FWMemoryMarker(colors: colors)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
         }
-        return nil
+        .buttonStyle(.plain)
+        .disabled(day.date > Date())
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(dayAccessibilityLabel(day, artworkCount: colors.count))
+    }
+
+    private var firstChildPrompt: some View {
+        Button {
+            showAddChild = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "plus.circle.fill")
+                Text("Add your first little artist")
+                    .font(FW.Font.body(14, weight: .bold))
+            }
+            .foregroundStyle(FW.Color.onboardingInk)
+            .padding(.horizontal, 18)
+            .frame(height: 44)
+            .background(.white.opacity(0.74))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+    }
+
+    private var calendarRowSpacing: CGFloat {
+        MonthGridLayout.rowSpacing(
+            rowCount: monthDays.count / 7,
+            targetHeight: 430,
+            cellHeight: 44
+        )
+    }
+
+    private var weekdaySymbols: [String] {
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        let offset = max(calendar.firstWeekday - 1, 0)
+        return Array(symbols[offset...] + symbols[..<offset])
+    }
+
+    private var monthSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height),
+                      abs(value.translation.width) > 48 else {
+                    return
+                }
+                let monthOffset = value.translation.width < 0 ? 1 : -1
+                withAnimation(.snappy(duration: 0.3)) {
+                    visibleMonth = MonthCalendar.offset(visibleMonth, by: monthOffset, calendar: calendar)
+                }
+            }
+    }
+
+    private func markerColors(for date: Date) -> [Color] {
+        let key = MonthCalendar.dayKey(for: date, calendar: calendar)
+        return (artworksByDay[key] ?? [])
+            .sorted { $0.createdAt < $1.createdAt }
+            .map { artwork in
+                guard let child = artwork.child else { return FW.Color.primary }
+                return FW.Color.childColor(id: child.id)
+            }
+    }
+
+    private func dayAccessibilityLabel(_ day: MonthDay, artworkCount: Int) -> String {
+        let date = day.date.formatted(.dateTime.month(.wide).day())
+        guard artworkCount > 0 else { return date }
+        return "\(date), \(artworkCount) saved \(artworkCount == 1 ? "memory" : "memories")"
     }
 
     private func ensureProfile() {
