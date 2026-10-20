@@ -17,6 +17,90 @@ final class CaptureViewModel {
     private let backgroundRemovalService = BackgroundRemovalService()
     private let supabaseService = SupabaseService.shared
 
+    /// Inserts a daily-memory photo locally before starting its remote upload.
+    /// A failed upload never removes the keepsake from the family calendar.
+    func saveMemoryImage(
+        _ image: UIImage,
+        note: String,
+        date: Date,
+        child: Child,
+        context: ModelContext
+    ) async -> Bool {
+        let filename = "\(UUID().uuidString).png"
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fileURL = documentsURL.appendingPathComponent(filename)
+
+        guard let pngData = image.pngData() else { return false }
+
+        do {
+            try pngData.write(to: fileURL)
+        } catch {
+            uploadError = "Failed to save image locally"
+            return false
+        }
+
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artwork = Artwork(
+            title: trimmedNote.isEmpty ? nil : trimmedNote,
+            localImagePath: filename,
+            backgroundRemoved: false,
+            createdAt: date
+        )
+        artwork.child = child
+        context.insert(artwork)
+        try? context.save()
+
+        Task {
+            do {
+                let storagePath = try await supabaseService.uploadArtwork(
+                    imageData: pngData,
+                    childID: child.id
+                )
+                _ = try await supabaseService.insertArtwork(
+                    id: artwork.id,
+                    childID: child.id,
+                    storagePath: storagePath,
+                    title: artwork.title,
+                    createdAt: date
+                )
+                artwork.storagePath = storagePath
+                artwork.remoteImageURL = try await supabaseService.signedArtworkURL(path: storagePath)
+
+                do {
+                    artwork.artworkDescription = try await supabaseService.describeArtwork(artworkID: artwork.id)
+                } catch {
+                    descriptionError = error.localizedDescription
+                }
+            } catch {
+                uploadError = error.localizedDescription
+            }
+        }
+
+        return true
+    }
+
+    func updateMemoryNote(
+        _ note: String,
+        for artworks: [Artwork],
+        context: ModelContext
+    ) async {
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedNote = trimmedNote.isEmpty ? nil : trimmedNote
+
+        for artwork in artworks {
+            artwork.title = storedNote
+        }
+        try? context.save()
+
+        for artwork in artworks where artwork.storagePath != nil {
+            do {
+                try await supabaseService.updateArtworkTitle(id: artwork.id, title: storedNote)
+            } catch {
+                uploadError = error.localizedDescription
+            }
+        }
+    }
+
     func processImage(_ image: UIImage) async {
         selectedImage = image
         isProcessing = true
@@ -66,7 +150,13 @@ final class CaptureViewModel {
 
         do {
             let storagePath = try await supabaseService.uploadArtwork(imageData: pngData, childID: child.id)
-            _ = try await supabaseService.insertArtwork(id: artwork.id, childID: child.id, storagePath: storagePath)
+            _ = try await supabaseService.insertArtwork(
+                id: artwork.id,
+                childID: child.id,
+                storagePath: storagePath,
+                title: artwork.title,
+                createdAt: artwork.createdAt
+            )
 
             artwork.storagePath = storagePath
             artwork.remoteImageURL = try await supabaseService.signedArtworkURL(path: storagePath)

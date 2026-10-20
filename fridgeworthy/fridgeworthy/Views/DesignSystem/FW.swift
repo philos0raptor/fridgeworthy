@@ -15,26 +15,38 @@ enum FW {
     // MARK: - Colors
 
     enum Color {
-        static let accent = SwiftUI.Color(hex: 0x7C3AED)
-        static let accent2 = SwiftUI.Color(hex: 0x9F7AEA)
-        static let accentDeep = SwiftUI.Color(hex: 0x5B21B6)
+        static let paper = SwiftUI.Color(hex: 0xFFFCF8)
+        static let ink = SwiftUI.Color(hex: 0x302B35)
+        static let onboardingInk = SwiftUI.Color(hex: 0x004225)
+        static let today = SwiftUI.Color(hex: 0x8B0000)
+        static let muted = SwiftUI.Color(hex: 0x77717D)
+        static let border = SwiftUI.Color(hex: 0xE7E0E7)
+        static let lavender = SwiftUI.Color(hex: 0xEAE4F4)
+        static let sky = SwiftUI.Color(hex: 0xE7EFF8)
+        static let primary = SwiftUI.Color(hex: 0x756A91)
+        static let maya = SwiftUI.Color(hex: 0xD996AA)
+        static let theo = SwiftUI.Color(hex: 0x91B8DB)
+        static let iris = SwiftUI.Color(hex: 0x97C4A1)
 
-        static let ink = SwiftUI.Color.black
-        static let ink2 = SwiftUI.Color(red: 60/255, green: 60/255, blue: 67/255).opacity(0.85)
-        static let ink3 = SwiftUI.Color(red: 60/255, green: 60/255, blue: 67/255).opacity(0.6)
-        static let ink4 = SwiftUI.Color(red: 60/255, green: 60/255, blue: 67/255).opacity(0.3)
+        // Compatibility aliases used by the existing screens while they migrate.
+        static let accent = primary
+        static let accent2 = SwiftUI.Color(hex: 0x9C91B5)
+        static let accentDeep = SwiftUI.Color(hex: 0x574D70)
+        static let ink2 = ink.opacity(0.85)
+        static let ink3 = muted
+        static let ink4 = ink.opacity(0.3)
 
-        static let bg = SwiftUI.Color(hex: 0xF2F2F7)
+        static let bg = paper
         static let bgDark = SwiftUI.Color.black
         static let card = SwiftUI.Color.white
         static let cardDark = SwiftUI.Color(hex: 0x1C1C1E)
-        static let surface2 = SwiftUI.Color(hex: 0xF2F2F7)
-        static let sep = SwiftUI.Color(red: 60/255, green: 60/255, blue: 67/255).opacity(0.12)
+        static let surface2 = SwiftUI.Color(hex: 0xF7F4F2)
+        static let sep = border
 
-        // SignIn warm gradient
-        static let cream1 = SwiftUI.Color(hex: 0xFFF6E8)
-        static let cream2 = SwiftUI.Color(hex: 0xF4ECD8)
-        static let cream3 = SwiftUI.Color(hex: 0xE8DCC0)
+        // Legacy warm aliases now point at the approved book-paper palette.
+        static let cream1 = paper
+        static let cream2 = lavender
+        static let cream3 = sky
 
         // Child detail hero
         static let amberHero1 = SwiftUI.Color(hex: 0xFFE5A8)
@@ -45,14 +57,33 @@ enum FW {
         static let paywall1 = SwiftUI.Color(hex: 0xC4A8E0)
         static let paywall2 = SwiftUI.Color(hex: 0x9F7AEA)
         static let paywall3 = SwiftUI.Color(hex: 0x7C3AED)
+
+        static let childPalette = [maya, theo, iris]
+
+        static func childColor(at index: Int) -> SwiftUI.Color {
+            let normalized = (index % childPalette.count + childPalette.count) % childPalette.count
+            return childPalette[normalized]
+        }
+
+        static func childColor(id: UUID) -> SwiftUI.Color {
+            let stableIndex = withUnsafeBytes(of: id.uuid) { bytes in
+                bytes.reduce(0) { (result: Int, byte: UInt8) in
+                    (result &* 31 &+ Int(byte)) & 0x7fffffff
+                }
+            }
+            return childColor(at: stableIndex)
+        }
     }
 
     // MARK: - Typography
 
     enum Font {
-        /// Hero display — 32pt bold
-        static func heroDisplay(_ size: CGFloat = 32) -> SwiftUI.Font {
-            .system(size: size, weight: .bold, design: .default)
+        /// Hero display — 32pt rounded, bold by default.
+        static func heroDisplay(
+            _ size: CGFloat = 32,
+            weight: SwiftUI.Font.Weight = .bold
+        ) -> SwiftUI.Font {
+            .system(size: size, weight: weight, design: .rounded)
         }
 
         /// Large title — 36pt bold
@@ -60,7 +91,7 @@ enum FW {
 
         /// Section title — 22-24pt bold
         static func sectionTitle(_ size: CGFloat = 22) -> SwiftUI.Font {
-            .system(size: size, weight: .bold, design: .default)
+            .system(size: size, weight: .bold, design: .rounded)
         }
 
         /// Card title — 21pt bold
@@ -68,17 +99,21 @@ enum FW {
 
         /// Body — 15-17pt regular/medium
         static func body(_ size: CGFloat = 16, weight: SwiftUI.Font.Weight = .regular) -> SwiftUI.Font {
-            .system(size: size, weight: weight, design: .default)
+            .system(size: size, weight: weight, design: .rounded)
         }
 
         /// Caption — 13-14pt regular/medium
         static func caption(_ size: CGFloat = 13, weight: SwiftUI.Font.Weight = .regular) -> SwiftUI.Font {
-            .system(size: size, weight: weight, design: .default)
+            .system(size: size, weight: weight, design: .rounded)
         }
 
         /// Micro — 11-12pt semibold, uppercase eyebrows
         static func micro(_ size: CGFloat = 11) -> SwiftUI.Font {
-            .system(size: size, weight: .semibold, design: .default)
+            .system(size: size, weight: .semibold, design: .rounded)
+        }
+
+        static func keepsake(_ size: CGFloat, weight: SwiftUI.Font.Weight = .regular) -> SwiftUI.Font {
+            .system(size: size, weight: weight, design: .serif)
         }
 
         /// Stat numeric — 26pt bold

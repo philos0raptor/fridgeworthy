@@ -9,7 +9,21 @@ final class AuthService {
     var isAuthenticated = false
     var currentUserID: UUID?
 
+    #if DEBUG
+    private var isPrototypeSession = false
+    #endif
+
     private var supabase: SupabaseClient { SupabaseService.shared.client }
+
+    #if DEBUG
+    /// Enters the local app experience without creating a Supabase session.
+    /// This exists only for design and navigation testing in debug builds.
+    func continueWithoutAuthentication() {
+        isPrototypeSession = true
+        currentUserID = nil
+        isAuthenticated = true
+    }
+    #endif
 
     func signInWithApple(credential: ASAuthorizationAppleIDCredential) async throws {
         guard let identityToken = credential.identityToken,
@@ -68,11 +82,18 @@ final class AuthService {
 
     func signOut() async {
         try? await supabase.auth.signOut()
+        #if DEBUG
+        isPrototypeSession = false
+        #endif
         isAuthenticated = false
         currentUserID = nil
     }
 
     func restoreSession() async {
+        #if DEBUG
+        guard !isPrototypeSession else { return }
+        #endif
+
         do {
             let session = try await supabase.auth.session
             currentUserID = session.user.id

@@ -87,17 +87,32 @@ final class SupabaseService {
         return url.absoluteString
     }
 
-    func insertArtwork(id: UUID, childID: UUID, storagePath: String) async throws -> ArtworkDTO {
+    func insertArtwork(
+        id: UUID,
+        childID: UUID,
+        storagePath: String,
+        title: String? = nil,
+        createdAt: Date = Date()
+    ) async throws -> ArtworkDTO {
         try await client.from("artworks")
             .insert([
                 "id": id.uuidString,
                 "child_id": childID.uuidString,
                 "image_url": storagePath,
+                "title": title ?? "",
+                "created_at": ISO8601DateFormatter().string(from: createdAt),
             ])
             .select()
             .single()
             .execute()
             .value
+    }
+
+    func updateArtworkTitle(id: UUID, title: String?) async throws {
+        try await client.from("artworks")
+            .update(["title": title ?? ""])
+            .eq("id", value: id.uuidString)
+            .execute()
     }
 
     func fetchArtworks(childID: UUID) async throws -> [ArtworkDTO] {
@@ -200,12 +215,19 @@ struct ArtworkDTO: Codable, Identifiable, Sendable {
     /// Storage object path, not a URL — `image_url` keeps its column name for
     /// compatibility, but holds a path. Sign it with `signedArtworkURL(path:)` to render.
     let storagePath: String
+    let title: String?
     let description: String?
+    let createdAt: String
+
+    var parsedCreatedAt: Date {
+        ISO8601DateFormatter().date(from: createdAt) ?? Date()
+    }
 
     enum CodingKeys: String, CodingKey {
-        case id, description
+        case id, title, description
         case childID = "child_id"
         case storagePath = "image_url"
+        case createdAt = "created_at"
     }
 }
 
