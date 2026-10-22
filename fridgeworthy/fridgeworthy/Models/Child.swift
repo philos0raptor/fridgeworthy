@@ -7,6 +7,7 @@ final class Child {
     var name: String
     var avatarEmoji: String
     var birthDate: Date?
+    var colorIndex: Int?
     var createdAt: Date
 
     var parent: UserProfile?
@@ -41,12 +42,14 @@ final class Child {
         name: String,
         avatarEmoji: String = "🎨",
         birthDate: Date? = nil,
+        colorIndex: Int? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
         self.name = name
         self.avatarEmoji = avatarEmoji
         self.birthDate = birthDate
+        self.colorIndex = colorIndex
         self.createdAt = createdAt
     }
 }

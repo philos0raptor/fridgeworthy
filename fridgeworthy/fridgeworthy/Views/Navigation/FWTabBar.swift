@@ -22,6 +22,7 @@ enum FWTab: Int, CaseIterable {
 
 struct FWTabBar: View {
     @Binding var selectedTab: FWTab
+    var onSettingsTap: () -> Void
     var onCaptureTap: () -> Void
 
     var body: some View {
@@ -30,6 +31,8 @@ struct FWTabBar: View {
                 Button {
                     if tab == .capture {
                         onCaptureTap()
+                    } else if tab == .settings {
+                        onSettingsTap()
                     } else {
                         withAnimation(.easeOut(duration: 0.18)) {
                             selectedTab = tab
@@ -65,10 +68,12 @@ struct FWTabBar: View {
 
             Image(tab.doodleAsset)
                 .resizable()
+                .renderingMode(tab == .home ? .original : .template)
                 .scaledToFit()
-                .scaleEffect(tab == .capture ? 1.9 : 1.65)
+                .scaleEffect(tab == .settings ? 0.8 : tab == .capture ? 1.9 : 1)
                 .frame(width: 34, height: 34)
                 .clipped()
+                .foregroundStyle(FW.Color.onboardingInk)
         }
         .frame(width: 54, height: 54)
         .scaleEffect(selectedTab == tab ? 1 : 0.94)
