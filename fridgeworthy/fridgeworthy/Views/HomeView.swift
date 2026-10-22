@@ -19,6 +19,7 @@ struct HomeView: View {
     private let calendar = Calendar.current
 
     private var userProfile: UserProfile? { profiles.first }
+    private var orderedChildIDs: [UUID] { children.map(\.id) }
 
     private var displayedArtworks: [Artwork] {
         if let selectedChild {
@@ -145,7 +146,11 @@ struct HomeView: View {
                     FWChildChip(
                         emoji: child.avatarEmoji,
                         name: child.name,
-                        colorTint: FW.Color.childColor(id: child.id),
+                        colorTint: FW.Color.childColor(
+                            id: child.id,
+                            orderedChildIDs: orderedChildIDs,
+                            customIndex: child.colorIndex
+                        ),
                         isActive: selectedChild?.id == child.id
                     ) {
                         selectedChild = child
@@ -197,10 +202,12 @@ struct HomeView: View {
 
     private func dayCell(_ day: MonthDay) -> some View {
         let colors = markerColors(for: day.date)
+        let key = MonthCalendar.dayKey(for: day.date, calendar: calendar)
+        let artworkCount = (artworksByDay[key] ?? []).count
         return Button {
             onSelectDate?(day.date, selectedChild)
         } label: {
-            ZStack {
+            VStack(spacing: 1) {
                 FWHandwrittenGlyphSequence(
                     text: String(day.number),
                     height: 29,
@@ -208,9 +215,7 @@ struct HomeView: View {
                 )
                     .frame(width: 38, height: 34)
 
-                if !colors.isEmpty {
-                    FWMemoryMarker(colors: colors)
-                }
+                FWEntryDots(colors: colors)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 44)
@@ -219,7 +224,7 @@ struct HomeView: View {
         .disabled(day.date > Date())
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(dayAccessibilityLabel(day, artworkCount: colors.count))
+        .accessibilityLabel(dayAccessibilityLabel(day, artworkCount: artworkCount))
     }
 
     private var firstChildPrompt: some View {
@@ -274,12 +279,16 @@ struct HomeView: View {
 
     private func markerColors(for date: Date) -> [Color] {
         let key = MonthCalendar.dayKey(for: date, calendar: calendar)
-        return (artworksByDay[key] ?? [])
-            .sorted { $0.createdAt < $1.createdAt }
-            .map { artwork in
-                guard let child = artwork.child else { return FW.Color.primary }
-                return FW.Color.childColor(id: child.id)
-            }
+        let childIDsWithEntries = Set((artworksByDay[key] ?? []).compactMap { $0.child?.id })
+        let orderedChildIDs = children.map(\.id)
+        return children.compactMap { child in
+            guard childIDsWithEntries.contains(child.id) else { return nil }
+            return FW.Color.childColor(
+                id: child.id,
+                orderedChildIDs: orderedChildIDs,
+                customIndex: child.colorIndex
+            )
+        }
     }
 
     private func dayAccessibilityLabel(_ day: MonthDay, artworkCount: Int) -> String {

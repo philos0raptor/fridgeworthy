@@ -10,9 +10,12 @@ struct DailyMemoryView: View {
     @Binding var pendingImages: [UIImage]
     let initialChild: Child?
     let onRequestPhoto: (Date) -> Void
+    let onDisplayedDateChanged: (Date) -> Void
+    let onNoteFocusChanged: (Bool) -> Void
 
     @State private var displayedDate: Date
     @State private var currentCardIndex = 0
+    @State private var selectedEntryChildID: UUID?
     @State private var note = ""
     @State private var isEditingNote = false
     @State private var isPersisting = false
@@ -25,33 +28,90 @@ struct DailyMemoryView: View {
         initialDate: Date,
         initialChild: Child?,
         pendingImages: Binding<[UIImage]>,
-        onRequestPhoto: @escaping (Date) -> Void
+        onRequestPhoto: @escaping (Date) -> Void,
+        onDisplayedDateChanged: @escaping (Date) -> Void,
+        onNoteFocusChanged: @escaping (Bool) -> Void
     ) {
         _displayedDate = State(initialValue: initialDate)
         _pendingImages = pendingImages
         self.initialChild = initialChild
         self.onRequestPhoto = onRequestPhoto
+        self.onDisplayedDateChanged = onDisplayedDateChanged
+        self.onNoteFocusChanged = onNoteFocusChanged
     }
 
     private var activeChild: Child? {
         initialChild ?? children.first
     }
 
-    private var dayArtworks: [Artwork] {
+    private var artworksForDisplayedDate: [Artwork] {
         allArtworks
-            .filter { artwork in
-                calendar.isDate(artwork.createdAt, inSameDayAs: displayedDate)
-                    && (initialChild == nil || artwork.child?.id == initialChild?.id)
-            }
+            .filter { calendar.isDate($0.createdAt, inSameDayAs: displayedDate) }
             .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private var orderedChildIDs: [UUID] { children.map(\.id) }
+
+    private var childrenWithArtworkOnDisplayedDate: [Child] {
+        var childIDs = Set(artworksForDisplayedDate.compactMap { $0.child?.id })
+        if !pendingImages.isEmpty, let pendingChild = activeChild {
+            childIDs.insert(pendingChild.id)
+        }
+        return children.filter { childIDs.contains($0.id) }
+    }
+
+    private var selectedEntryChild: Child? {
+        childrenWithArtworkOnDisplayedDate.first { $0.id == selectedEntryChildID }
+            ?? childrenWithArtworkOnDisplayedDate.first
+    }
+
+    private var selectedChildArtworks: [Artwork] {
+        guard let selectedEntryChild else {
+            return artworksForDisplayedDate.filter { $0.child == nil }
+        }
+        return artworksForDisplayedDate.filter { $0.child?.id == selectedEntryChild.id }
+    }
+
+    private var selectedPendingImages: [UIImage] {
+        guard let selectedEntryChild,
+              selectedEntryChild.id == activeChild?.id else {
+            return []
+        }
+        return pendingImages
+    }
+
+    private var dayArtworks: [Artwork] { selectedChildArtworks }
+
+    private var showsChildSelector: Bool {
+        childrenWithArtworkOnDisplayedDate.count > 0
+    }
+
+    private var datesWithEntries: Set<Date> {
+        Set(allArtworks.compactMap { artwork in
+            guard initialChild == nil || artwork.child?.id == initialChild?.id else {
+                return nil
+            }
+            return calendar.startOfDay(for: artwork.createdAt)
+        })
     }
 
     private var isToday: Bool {
         DailyMemoryNavigation.isToday(displayedDate, calendar: calendar)
     }
 
+    private var dateRailDates: [Date] {
+        DailyMemoryNavigation.dateRailDates(calendar: calendar)
+    }
+
+    private var showsTodayShortcut: Bool {
+        DailyMemoryNavigation.showsTodayShortcut(
+            for: displayedDate,
+            calendar: calendar
+        )
+    }
+
     private var photoCount: Int {
-        dayArtworks.count + pendingImages.count
+        selectedChildArtworks.count + selectedPendingImages.count
     }
 
     private var cardCount: Int {
@@ -89,7 +149,7 @@ struct DailyMemoryView: View {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") {
-                    let currentArtworks = dayArtworks
+                    let currentArtworks = artworksForDisplayedDate
                     let currentNote = note
                     noteFocused = false
                     isEditingNote = false
@@ -104,26 +164,38 @@ struct DailyMemoryView: View {
             }
         }
         .onAppear {
+            reconcileSelectedEntryChild()
             refreshNote()
             persistPendingImagesIfNeeded()
         }
-        .onChange(of: displayedDate) { _, _ in
+        .onChange(of: displayedDate) { _, newDate in
             currentCardIndex = 0
             isEditingNote = false
+            reconcileSelectedEntryChild()
             refreshNote()
+            onDisplayedDateChanged(newDate)
         }
-        .onChange(of: dayArtworks.map(\.id)) { _, _ in
+        .onChange(of: artworksForDisplayedDate.map(\.id)) { _, _ in
+            reconcileSelectedEntryChild()
             currentCardIndex = min(currentCardIndex, max(cardCount - 1, 0))
             if !noteFocused {
                 refreshNote()
             }
         }
         .onChange(of: pendingImages.count) { _, _ in
+            reconcileSelectedEntryChild()
             currentCardIndex = min(currentCardIndex, max(cardCount - 1, 0))
             persistPendingImagesIfNeeded()
         }
+        .onChange(of: selectedEntryChildID) { _, _ in
+            currentCardIndex = 0
+        }
+        .onChange(of: noteFocused) { _, isFocused in
+            onNoteFocusChanged(isFocused)
+        }
         .onDisappear {
-            let currentArtworks = dayArtworks
+            onNoteFocusChanged(false)
+            let currentArtworks = artworksForDisplayedDate
             let currentNote = note
             Task {
                 await viewModel.updateMemoryNote(
@@ -141,19 +213,20 @@ struct DailyMemoryView: View {
     }
 
     private var header: some View {
-        ZStack {
-            Text(headerTitle)
-                .font(FW.Font.caption(12))
-                .foregroundStyle(FW.Color.onboardingInk)
+        ZStack(alignment: .top) {
+            VStack(spacing: 3) {
+                Text(headerTitle)
+                    .font(FW.Font.caption(12))
+                    .foregroundStyle(FW.Color.onboardingInk)
 
-            if !isToday {
+                dateRail
+            }
+
+            if showsTodayShortcut {
                 HStack {
                     Spacer()
                     Button("Today") {
-                        commitCurrentNote()
-                        withAnimation(.snappy(duration: 0.28)) {
-                            displayedDate = Date()
-                        }
+                        selectDate(Date())
                     }
                     .font(FW.Font.caption(12))
                     .foregroundStyle(FW.Color.onboardingInk)
@@ -161,7 +234,83 @@ struct DailyMemoryView: View {
                 }
             }
         }
-        .frame(height: 44)
+        .frame(height: 66)
+    }
+
+    private var dateRail: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 12) {
+                    ForEach(dateRailDates, id: \.self) { date in
+                        dateRailButton(for: date)
+                            .id(calendar.startOfDay(for: date))
+                    }
+                }
+                .scrollTargetLayout()
+                .padding(.horizontal, 62)
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.viewAligned)
+            .frame(width: 184, height: 28)
+            .onAppear {
+                proxy.scrollTo(
+                    calendar.startOfDay(for: displayedDate),
+                    anchor: .center
+                )
+            }
+            .onChange(of: displayedDate) { _, newDate in
+                withAnimation(.snappy(duration: 0.24)) {
+                    proxy.scrollTo(
+                        calendar.startOfDay(for: newDate),
+                        anchor: .center
+                    )
+                }
+            }
+        }
+    }
+
+    private func dateRailButton(for date: Date) -> some View {
+        let isSelected = calendar.isDate(date, inSameDayAs: displayedDate)
+        let hasEntry = DailyMemoryNavigation.hasEntry(
+            on: date,
+            in: datesWithEntries,
+            calendar: calendar
+        )
+
+        return Button {
+            selectDate(date)
+        } label: {
+            VStack(spacing: 3) {
+                Text(String(calendar.component(.day, from: date)))
+                    .font(FW.Font.caption(10))
+                    .foregroundStyle(
+                        FW.Color.onboardingInk.opacity(isSelected ? 1 : 0.34)
+                    )
+
+                if isSelected {
+                    Capsule()
+                        .fill(FW.Color.onboardingInk)
+                        .frame(width: 12, height: 1)
+                        .rotationEffect(.degrees(-3))
+                }
+
+                if hasEntry {
+                    Circle()
+                        .fill(FW.Color.onboardingInk.opacity(0.38))
+                        .frame(width: 3, height: 3)
+                } else {
+                    Color.clear
+                        .frame(width: 3, height: 3)
+                }
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            date.formatted(.dateTime.month(.wide).day().year())
+        )
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var emptyState: some View {
@@ -192,6 +341,11 @@ struct DailyMemoryView: View {
 
     private var filledState: some View {
         VStack(spacing: 0) {
+            if showsChildSelector {
+                childSelector
+                    .padding(.top, 10)
+            }
+
             photoDeck
                 .padding(.top, 14)
 
@@ -200,6 +354,52 @@ struct DailyMemoryView: View {
 
             Spacer(minLength: 8)
         }
+    }
+
+    private var childSelector: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(childrenWithArtworkOnDisplayedDate) { child in
+                    let isSelected = selectedEntryChild?.id == child.id
+                    let color = FW.Color.childColor(
+                        id: child.id,
+                        orderedChildIDs: orderedChildIDs,
+                        customIndex: child.colorIndex
+                    )
+
+                    Button {
+                        withAnimation(.snappy(duration: 0.24)) {
+                            selectedEntryChildID = child.id
+                            currentCardIndex = 0
+                        }
+                    } label: {
+                        Text(child.name)
+                            .font(FW.Font.caption(12))
+                            .foregroundStyle(FW.Color.onboardingInk)
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 7)
+                            .background(color.opacity(isSelected ? 0.78 : 0.48))
+                            .clipShape(Capsule())
+                            .overlay {
+                                Capsule()
+                                    .strokeBorder(
+                                        isSelected
+                                            ? FW.Color.onboardingInk.opacity(0.58)
+                                            : Color.white.opacity(0.72),
+                                        lineWidth: isSelected ? 1.25 : 1
+                                    )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(child.name)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+        .scrollIndicators(.hidden)
+        .frame(height: 34)
+        .accessibilityLabel("Children with artwork on this day")
     }
 
     private var photoDeck: some View {
@@ -218,7 +418,10 @@ struct DailyMemoryView: View {
         .gesture(photoSwipeGesture)
         .animation(.snappy(duration: 0.24), value: currentCardIndex)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Photos for \(headerTitle)")
+        .accessibilityLabel(
+            selectedEntryChild.map { "Photos for \($0.name) on \(headerTitle)" }
+                ?? "Photos for \(headerTitle)"
+        )
     }
 
     @ViewBuilder
@@ -226,7 +429,7 @@ struct DailyMemoryView: View {
         if index < dayArtworks.count {
             artworkCard(dayArtworks[index])
         } else if index < photoCount {
-            imageCard(Image(uiImage: pendingImages[index - dayArtworks.count]))
+            imageCard(Image(uiImage: selectedPendingImages[index - dayArtworks.count]))
                 .accessibilityLabel("New photo \(index - dayArtworks.count + 1)")
         } else {
             Button {
@@ -313,20 +516,20 @@ struct DailyMemoryView: View {
                     .focused($noteFocused)
                     .frame(minHeight: 82, maxHeight: 132)
             }
-        } else if !note.isEmpty {
+        } else if photoCount > 0 {
             Button {
                 isEditingNote = true
                 noteFocused = true
             } label: {
-                Text(note)
+                Text(note.isEmpty ? "What do you want to remember?" : note)
                     .font(FW.Font.body(18))
-                    .foregroundStyle(FW.Color.onboardingInk)
+                    .foregroundStyle(FW.Color.onboardingInk.opacity(note.isEmpty ? 0.48 : 1))
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Edit memory message")
+            .accessibilityLabel(note.isEmpty ? "Add memory message" : "Edit memory message")
         }
     }
 
@@ -385,7 +588,9 @@ struct DailyMemoryView: View {
                     return
                 }
 
-                let offset = value.translation.width < 0 ? -1 : 1
+                let offset = DailyMemoryNavigation.dayOffsetForSwipe(
+                    translationWidth: value.translation.width
+                )
                 let nextDate = DailyMemoryNavigation.clampedTowardToday(
                     displayedDate,
                     by: offset,
@@ -408,11 +613,11 @@ struct DailyMemoryView: View {
     }
 
     private func refreshNote() {
-        note = dayArtworks.first?.title ?? ""
+        note = artworksForDisplayedDate.first?.title ?? ""
     }
 
     private func commitCurrentNote() {
-        let currentArtworks = dayArtworks
+        let currentArtworks = artworksForDisplayedDate
         let currentNote = note
         Task {
             await viewModel.updateMemoryNote(
@@ -420,6 +625,14 @@ struct DailyMemoryView: View {
                 for: currentArtworks,
                 context: modelContext
             )
+        }
+    }
+
+    private func selectDate(_ date: Date) {
+        guard !calendar.isDate(date, inSameDayAs: displayedDate) else { return }
+        commitCurrentNote()
+        withAnimation(.snappy(duration: 0.28)) {
+            displayedDate = date
         }
     }
 
@@ -442,6 +655,26 @@ struct DailyMemoryView: View {
                 pendingImages.removeFirst()
             }
             isPersisting = false
+        }
+    }
+
+    private func reconcileSelectedEntryChild() {
+        let availableChildren = childrenWithArtworkOnDisplayedDate
+        guard !availableChildren.isEmpty else {
+            selectedEntryChildID = nil
+            return
+        }
+
+        if let selectedEntryChildID,
+           availableChildren.contains(where: { $0.id == selectedEntryChildID }) {
+            return
+        }
+
+        if let initialChild,
+           availableChildren.contains(where: { $0.id == initialChild.id }) {
+            selectedEntryChildID = initialChild.id
+        } else {
+            selectedEntryChildID = availableChildren.first?.id
         }
     }
 
