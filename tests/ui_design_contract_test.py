@@ -52,6 +52,7 @@ def check_assets() -> None:
         "FWThemeSystem",
         "FWThemeDark",
         "FWThemeLight",
+        "FWSettingsHeader",
     ]
     for name in names:
         image_set = ASSETS / f"{name}.imageset"
@@ -70,8 +71,15 @@ def check_assets() -> None:
     for asset_name, filename in theme_assets.items():
         image_set = ASSETS / f"{asset_name}.imageset"
         manifest = json.loads((image_set / "Contents.json").read_text())
-        require(manifest["images"][0].get("filename") == filename, f"{asset_name} should use {filename}")
+        image_entry = next((image for image in manifest["images"] if image.get("filename")), None)
+        require(image_entry is not None and image_entry.get("filename") == filename, f"{asset_name} should use {filename}")
         require((image_set / filename).read_bytes() == (ROOT / "drawings" / "system-theme" / filename).read_bytes(), f"{asset_name} should preserve the supplied PNG as-is")
+
+    settings_header = ASSETS / "FWSettingsHeader.imageset"
+    settings_header_manifest = json.loads((settings_header / "Contents.json").read_text())
+    settings_header_image = next((image for image in settings_header_manifest["images"] if image.get("filename")), None)
+    require(settings_header_image is not None and settings_header_image.get("filename") == "settings-icon.png", "settings header should use the supplied settings illustration")
+    require((settings_header / "settings-icon.png").read_bytes() == (ROOT / "drawings" / "settings-icon.png").read_bytes(), "settings header illustration should be preserved as-is")
 
 
 def check_foundations() -> None:
@@ -85,12 +93,17 @@ def check_foundations() -> None:
     require("LinearGradient" in background, "paper background must use a gradient")
 
     settings = source("Views/MeView.swift")
+    require('Image("FWSettingsHeader")' in settings, "settings page should show the settings illustration")
+    require(settings.index('Image("FWSettingsHeader")') < settings.index('settingsSection("Kids")'), "settings illustration should appear above the settings sections")
+    require(".frame(width: 88, height: 100)" in settings and ".frame(maxWidth: .infinity)" in settings, "settings illustration should be centered at its intended size")
     require(".renderingMode(.template)" not in settings, "theme picker icons should preserve their supplied colors")
     require(".scaledToFit()" in settings, "theme picker icons should scale proportionally into their display frame")
     require(".frame(width: selected ? 30 : 24, height: selected ? 30 : 24)" in settings, "theme picker icons should use the enlarged fit sizes")
 
     status = source("Views/DesignSystem/FWHandwrittenStatusBar.swift")
     require("TimelineView" in status, "custom status time must update periodically")
+    require("TimelineView(.everyMinute)" in status, "custom status time should refresh on minute boundaries")
+    require("UIApplication.significantTimeChangeNotification" in status, "custom status time should refresh after significant system time changes")
     require("batteryLevel" in status, "custom status must read live battery level")
     require("SystemStatusSnapshot" in status, "custom status must derive time and battery from one system snapshot")
     require("fallbackBatteryPercentage" not in status, "custom status must not invent a battery percentage")
@@ -99,6 +112,8 @@ def check_foundations() -> None:
     require("case \":\": 6.5" in status, "colon artwork must use its measured crop scale")
     require("case \"8\": 2.25" in status, "wide number artwork must use its measured non-clipping scale")
     require("case \"%\": 5.5" in status, "percentage artwork must use its measured crop scale")
+    require('case "%": 0' in status and 'case ":": -4' in status, "percent artwork should sit lower than the colon")
+    require(".padding(.trailing, 10)" in status, "battery percentage should be inset from the screen edge")
     require("verticalOffset" in status, "off-center punctuation artwork must be aligned by its measured bounds")
     require("HStack(spacing: -2)" in status, "handwritten glyphs must leave the colon legible")
     require("accessibilityValue" in status, "custom status must expose its displayed values to VoiceOver")
@@ -136,7 +151,7 @@ def check_authentication() -> None:
 def check_month_overview() -> None:
     home = source("Views/HomeView.swift")
     require("MonthCalendar.days" in home, "home must render the tested month grid")
-    require("MonthCalendar.offset" in home, "home must navigate adjacent months")
+    require("MonthCalendar.clampedOffset" in home, "home month navigation must stop at the current month")
     require("visibleMonth" in home and "selectedChild" in home, "home must retain month and child filter state")
     require("DragGesture" in home and "translation.width" in home, "home must support horizontal month swipes")
     require("showMonthPicker" in home and "FWMonthPicker" in home, "month heading must open the picker")
@@ -276,6 +291,11 @@ def check_daily_memory_routing() -> None:
     require(".renderingMode(.template)" in main_tabs, "hand-drawn child outlines must support tinting")
     require("foregroundStyle(FW.Color.onboardingInk)" in main_tabs, "hand-drawn child outlines must use the deep-green ink")
     require("onDisplayedDateChanged(newDate)" in source("Views/DailyMemoryView.swift"), "date rail and swipe changes must update the add target")
+    daily_memory = source("Views/DailyMemoryView.swift")
+    require(".scrollPosition(id: $railDatePosition, anchor: .center)" in daily_memory, "the date rail should track the centered date while the user drags")
+    require(".viewAligned(limitBehavior: .alwaysByOne)" in daily_memory, "the date rail should naturally settle no more than one date per swipe")
+    require(".onScrollPhaseChange" in daily_memory, "the selected date should commit when native scrolling settles")
+    require("UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.7)" in daily_memory, "date changes should provide a stronger adjustable haptic")
     require("memoryDate = date" in main_tabs, "calendar routing must preserve the selected date")
     require("memoryChild = child" in main_tabs, "calendar routing must preserve the selected child filter")
     require(".id(memoryRouteID)" in main_tabs, "changing day or child must reset the daily screen to the selected route")

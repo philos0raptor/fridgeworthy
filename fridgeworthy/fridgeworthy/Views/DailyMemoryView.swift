@@ -14,6 +14,7 @@ struct DailyMemoryView: View {
     let onNoteFocusChanged: (Bool) -> Void
 
     @State private var displayedDate: Date
+    @State private var railDatePosition: Date?
     @State private var currentCardIndex = 0
     @State private var selectedEntryChildID: UUID?
     @State private var note = ""
@@ -33,6 +34,7 @@ struct DailyMemoryView: View {
         onNoteFocusChanged: @escaping (Bool) -> Void
     ) {
         _displayedDate = State(initialValue: initialDate)
+        _railDatePosition = State(initialValue: Calendar.current.startOfDay(for: initialDate))
         _pendingImages = pendingImages
         self.initialChild = initialChild
         self.onRequestPhoto = onRequestPhoto
@@ -169,6 +171,7 @@ struct DailyMemoryView: View {
             persistPendingImagesIfNeeded()
         }
         .onChange(of: displayedDate) { _, newDate in
+            railDatePosition = calendar.startOfDay(for: newDate)
             currentCardIndex = 0
             isEditingNote = false
             reconcileSelectedEntryChild()
@@ -238,39 +241,36 @@ struct DailyMemoryView: View {
     }
 
     private var dateRail: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 12) {
-                    ForEach(dateRailDates, id: \.self) { date in
-                        dateRailButton(for: date)
-                            .id(calendar.startOfDay(for: date))
-                    }
-                }
-                .scrollTargetLayout()
-                .padding(.horizontal, 62)
-            }
-            .scrollIndicators(.hidden)
-            .scrollTargetBehavior(.viewAligned)
-            .frame(width: 184, height: 28)
-            .onAppear {
-                proxy.scrollTo(
-                    calendar.startOfDay(for: displayedDate),
-                    anchor: .center
-                )
-            }
-            .onChange(of: displayedDate) { _, newDate in
-                withAnimation(.snappy(duration: 0.24)) {
-                    proxy.scrollTo(
-                        calendar.startOfDay(for: newDate),
-                        anchor: .center
-                    )
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 12) {
+                ForEach(dateRailDates, id: \.self) { date in
+                    dateRailButton(for: date)
+                        .id(calendar.startOfDay(for: date))
                 }
             }
+            .scrollTargetLayout()
+            .padding(.horizontal, 62)
+        }
+        .scrollIndicators(.hidden)
+        .scrollPosition(id: $railDatePosition, anchor: .center)
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
+        .frame(width: 184, height: 28)
+        .onChange(of: railDatePosition) { _, newDate in
+            guard newDate != nil else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.7)
+        }
+        .onScrollPhaseChange { _, newPhase in
+            guard newPhase == .idle,
+                  let settledDate = railDatePosition,
+                  !calendar.isDate(settledDate, inSameDayAs: displayedDate) else {
+                return
+            }
+            selectDate(settledDate)
         }
     }
 
     private func dateRailButton(for date: Date) -> some View {
-        let isSelected = calendar.isDate(date, inSameDayAs: displayedDate)
+        let isSelected = calendar.isDate(date, inSameDayAs: railDatePosition ?? displayedDate)
         let hasEntry = DailyMemoryNavigation.hasEntry(
             on: date,
             in: datesWithEntries,
@@ -538,8 +538,9 @@ struct DailyMemoryView: View {
     }
 
     private var headerTitle: String {
-        guard !isToday else { return "Today" }
-        let components = calendar.dateComponents([.month, .day], from: displayedDate)
+        let headerDate = railDatePosition ?? displayedDate
+        guard !DailyMemoryNavigation.isToday(headerDate, calendar: calendar) else { return "Today" }
+        let components = calendar.dateComponents([.month, .day], from: headerDate)
         return String(format: "%02d.%02d", components.month ?? 0, components.day ?? 0)
     }
 

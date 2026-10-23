@@ -272,7 +272,7 @@ struct HomeView: View {
                 }
                 let monthOffset = value.translation.width < 0 ? 1 : -1
                 withAnimation(.snappy(duration: 0.3)) {
-                    visibleMonth = MonthCalendar.offset(visibleMonth, by: monthOffset, calendar: calendar)
+                    visibleMonth = MonthCalendar.clampedOffset(visibleMonth, by: monthOffset, calendar: calendar)
                 }
             }
     }

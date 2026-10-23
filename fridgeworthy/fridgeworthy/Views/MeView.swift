@@ -33,6 +33,13 @@ struct MeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                Image("FWSettingsHeader")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 88, height: 100)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+
                 settingsSection("Kids") {
                     VStack(spacing: 0) {
                         ForEach(children) { child in
