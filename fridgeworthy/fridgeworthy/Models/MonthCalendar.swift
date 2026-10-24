@@ -48,6 +48,19 @@ enum MonthCalendar {
         return calendar.date(byAdding: .month, value: value, to: monthStart) ?? monthStart
     }
 
+    static func clampedOffset(
+        _ month: Date,
+        by value: Int,
+        now: Date = Date(),
+        calendar: Calendar
+    ) -> Date {
+        let candidate = offset(month, by: value, calendar: calendar)
+        let currentMonth = calendar.date(
+            from: calendar.dateComponents([.year, .month], from: now)
+        ) ?? now
+        return candidate > currentMonth ? currentMonth : candidate
+    }
+
     static func isCurrentMonth(
         _ month: Date,
         now: Date = Date(),

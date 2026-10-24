@@ -57,6 +57,29 @@ let january = MonthCalendar.offset(date(2026, 12, 15), by: 1, calendar: calendar
 let januaryComponents = calendar.dateComponents([.year, .month, .day], from: january)
 expect(januaryComponents.year == 2027 && januaryComponents.month == 1 && januaryComponents.day == 1, "Month offset should cross year boundaries and normalize to day one")
 
+let currentMonth = date(2026, 10, 1)
+let nextMonthFromCurrent = MonthCalendar.clampedOffset(
+    currentMonth,
+    by: 1,
+    now: date(2026, 10, 23),
+    calendar: calendar
+)
+expect(calendar.isDate(nextMonthFromCurrent, equalTo: currentMonth, toGranularity: .month), "forward navigation from the current month should stay in the current month")
+let previousMonth = MonthCalendar.clampedOffset(
+    currentMonth,
+    by: -1,
+    now: date(2026, 10, 23),
+    calendar: calendar
+)
+expect(calendar.component(.month, from: previousMonth) == 9, "backward navigation from the current month should still reach the previous month")
+let nextMonthFromPast = MonthCalendar.clampedOffset(
+    date(2026, 9, 1),
+    by: 2,
+    now: date(2026, 10, 23),
+    calendar: calendar
+)
+expect(calendar.isDate(nextMonthFromPast, equalTo: currentMonth, toGranularity: .month), "past-month navigation should clamp at the current month")
+
 expect(
     MonthCalendar.isCurrentMonth(date(2026, 10, 1), now: date(2026, 10, 31), calendar: calendar),
     "Dates in the same month should compare as current"

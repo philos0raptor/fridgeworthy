@@ -5,6 +5,7 @@ struct FWHandwrittenStatusBar: View {
     let inkColor: Color
     let verticalOffset: CGFloat
     @State private var batteryLevel: Float = -1
+    @State private var significantTimeChangeID = UUID()
 
     init(inkColor: Color = FW.Color.ink, verticalOffset: CGFloat = -52) {
         self.inkColor = inkColor
@@ -12,7 +13,7 @@ struct FWHandwrittenStatusBar: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
+        TimelineView(.everyMinute) { context in
             let snapshot = SystemStatusSnapshot(
                 date: context.date,
                 batteryLevel: batteryLevel
@@ -36,6 +37,7 @@ struct FWHandwrittenStatusBar: View {
                 }
                 .frame(width: 88, alignment: .trailing)
                 .scaleEffect(0.7, anchor: .trailing)
+                .padding(.trailing, 10)
             }
             .frame(height: 34)
             .offset(y: verticalOffset)
@@ -43,12 +45,16 @@ struct FWHandwrittenStatusBar: View {
             .accessibilityLabel("Status")
             .accessibilityValue(snapshot.accessibilityValue)
         }
+        .id(significantTimeChangeID)
         .onAppear {
             UIDevice.current.isBatteryMonitoringEnabled = true
             batteryLevel = UIDevice.current.batteryLevel
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryLevelDidChangeNotification)) { _ in
             batteryLevel = UIDevice.current.batteryLevel
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            significantTimeChangeID = UUID()
         }
     }
 }
@@ -123,7 +129,8 @@ struct FWHandwrittenGlyphSequence: View {
 
     private static func verticalOffset(for character: Character) -> CGFloat {
         switch character {
-        case ":", "%": -4
+        case ":": -4
+        case "%": 0
         default: 0
         }
     }
