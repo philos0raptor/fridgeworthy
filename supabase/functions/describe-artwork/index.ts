@@ -67,7 +67,24 @@ serve(async (req) => {
         max_tokens: 2048,
         // A 15-word caption is not hard work; low effort keeps cost and latency down
         // without disabling thinking, which has its own failure modes.
-        output_config: { effort: "low" },
+        // A constrained schema, so the palette arrives as a real array rather than
+        // something parsed out of prose. artworks.color_palette is text[], and
+        // generate-wallpaper joins it straight into the {color_palette} prompt token.
+        output_config: {
+          effort: "low",
+          format: {
+            type: "json_schema",
+            schema: {
+              type: "object",
+              properties: {
+                description: { type: "string" },
+                colors: { type: "array", items: { type: "string" } },
+              },
+              required: ["description", "colors"],
+              additionalProperties: false,
+            },
+          },
+        },
         // Route around a safety refusal rather than returning nothing for a drawing.
         fallbacks: "default",
         messages: [
@@ -84,7 +101,10 @@ serve(async (req) => {
               },
               {
                 type: "text",
-                text: "List the main subjects, colors, and mood of this child's drawing in 15 words or fewer. Be specific about what you see — animals, shapes, people, objects. Output only the description, no preamble.",
+                text:
+                  "Describe this child's drawing.\n\n" +
+                  "description: the main subjects and mood in 15 words or fewer. Be specific about what you see — animals, shapes, people, objects.\n" +
+                  "colors: up to 6 of the most prominent colours, as plain descriptive names an illustrator would use (\"sunny yellow\", \"grass green\"), ordered most prominent first. Not hex codes.",
               },
             ],
           },
@@ -109,9 +129,34 @@ serve(async (req) => {
     // Find the text block rather than taking content[0]: with thinking enabled the first
     // block is a thinking block, whose text is empty by default. Indexing blindly would
     // store "" as the description and look like a successful call.
-    const description = claudeResult.content
+    const rawText = claudeResult.content
       ?.find((block: { type: string }) => block.type === "text")
       ?.text?.trim() || "";
+
+    if (!rawText) {
+      return new Response(
+        JSON.stringify({ error: "Model returned no description" }),
+        { status: 502 }
+      );
+    }
+
+    let description = "";
+    let colors: string[] = [];
+
+    try {
+      const parsed = JSON.parse(rawText);
+      description = (parsed.description ?? "").trim();
+      colors = Array.isArray(parsed.colors)
+        ? parsed.colors
+            .filter((c: unknown): c is string => typeof c === "string" && c.trim() !== "")
+            .map((c: string) => c.trim())
+            .slice(0, 6)
+        : [];
+    } catch {
+      // The schema makes this unreachable in practice, but a caption is the valuable
+      // half — keep it rather than failing the whole call over the palette.
+      description = rawText;
+    }
 
     if (!description) {
       return new Response(
@@ -123,11 +168,11 @@ serve(async (req) => {
     // Update artwork with description
     await supabase
       .from("artworks")
-      .update({ description })
+      .update({ description, color_palette: colors })
       .eq("id", artwork_id);
 
     return new Response(
-      JSON.stringify({ artwork_id, description }),
+      JSON.stringify({ artwork_id, description, colors }),
       { headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
