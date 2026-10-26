@@ -146,13 +146,19 @@ final class SupabaseService {
     /// Identifies the style by **slug**, not id. A locally-seeded template carries a
     /// client-generated UUID the server has never seen, so sending an id 404s every time
     /// (see `003_style_template_slugs.sql`).
-    func generateWallpaper(childID: UUID, styleSlug: String) async throws -> UUID {
+    func generateWallpaper(childID: UUID, styleSlug: String, period: ArtworkPeriod? = nil) async throws -> UUID {
+        var body = [
+            "child_id": childID.uuidString,
+            "style_slug": styleSlug,
+        ]
+        if let period {
+            let formatter = ISO8601DateFormatter()
+            body["period_start"] = formatter.string(from: period.start)
+            body["period_end"] = formatter.string(from: period.end)
+        }
         let response: GenerateWallpaperResponse = try await client.functions.invoke(
             "generate-wallpaper",
-            options: .init(body: [
-                "child_id": childID.uuidString,
-                "style_slug": styleSlug,
-            ])
+            options: .init(body: body)
         )
         return response.wallpaperID
     }
@@ -219,8 +225,8 @@ struct ArtworkDTO: Codable, Identifiable, Sendable {
     let description: String?
     let createdAt: String
 
-    var parsedCreatedAt: Date {
-        ISO8601DateFormatter().date(from: createdAt) ?? Date()
+    var parsedCreatedAt: Date? {
+        ArtworkTimestamp.parse(createdAt)
     }
 
     enum CodingKeys: String, CodingKey {

@@ -7,6 +7,9 @@ import UIKit
 struct MainTabView: View {
     @State private var selectedTab: FWTab = .home
     @State private var showSettingsSheet = false
+    @State private var showHandUpArt = false
+    @State private var handUpCaptureDate: Date?
+    @State private var handUpCaptureChildID: UUID?
     @State private var showAddArtworkSheet = false
     @State private var showCamera = false
     @State private var showCameraUnavailable = false
@@ -34,7 +37,8 @@ struct MainTabView: View {
                     NavigationStack {
                         HomeView(
                             addChildRequestToken: addChildRequestToken,
-                            onSelectDate: openMemory
+                            onSelectDate: openMemory,
+                            onOpenHandUpArt: { showHandUpArt = true }
                         )
                     }
                 case .capture:
@@ -85,6 +89,21 @@ struct MainTabView: View {
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showHandUpArt, onDismiss: {
+            if let date = handUpCaptureDate {
+                handUpCaptureDate = nil
+                beginHandUpCapture(date: date, childID: handUpCaptureChildID)
+                handUpCaptureChildID = nil
+            }
+        }) {
+            NavigationStack {
+                HandUpArtView { date, child in
+                    handUpCaptureDate = date
+                    handUpCaptureChildID = child?.id
+                    showHandUpArt = false
+                }
+            }
         }
         .alert("Add a child first", isPresented: $captureRequiresChild) {
             Button("Add Child") {
@@ -151,6 +170,17 @@ struct MainTabView: View {
         }
         photoTargetDate = date
         photoTargetChild = nil
+        presentArtworkSourcePicker()
+    }
+
+    private func beginHandUpCapture(date: Date, childID: UUID?) {
+        guard !children.isEmpty else {
+            selectedTab = .home
+            captureRequiresChild = true
+            return
+        }
+        photoTargetDate = date
+        photoTargetChild = children.first { $0.id == childID }
         presentArtworkSourcePicker()
     }
 

@@ -16,6 +16,7 @@ final class GalleryViewModel {
 
     func syncWithRemote(child: Child, context: ModelContext) async {
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
 
         do {
@@ -23,6 +24,10 @@ final class GalleryViewModel {
             let localIDs = Set(child.artworks.map(\.id))
 
             for dto in remoteArtworks {
+                guard let createdAt = dto.parsedCreatedAt else {
+                    errorMessage = "Some artwork dates could not be read. Pull to refresh and try again."
+                    continue
+                }
                 // The bucket is private, so a stored path renders only once signed.
                 // A failure here must not drop the artwork — the record is still valid,
                 // it just has no displayable URL this pass.
@@ -33,7 +38,7 @@ final class GalleryViewModel {
                     if let local = child.artworks.first(where: { $0.id == dto.id }) {
                         local.storagePath = dto.storagePath
                         local.title = dto.title
-                        local.createdAt = dto.parsedCreatedAt
+                        local.createdAt = createdAt
                         if let signedURL { local.remoteImageURL = signedURL }
                         if let desc = dto.description {
                             local.artworkDescription = desc
@@ -48,7 +53,7 @@ final class GalleryViewModel {
                         storagePath: dto.storagePath,
                         remoteImageURL: signedURL,
                         backgroundRemoved: true,
-                        createdAt: dto.parsedCreatedAt
+                        createdAt: createdAt
                     )
                     artwork.artworkDescription = dto.description
                     artwork.child = child

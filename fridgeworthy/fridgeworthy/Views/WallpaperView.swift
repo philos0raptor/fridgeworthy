@@ -16,6 +16,20 @@ struct WallpaperView: View {
 
     let child: Child
     let style: StyleTemplate
+    var period: ArtworkPeriod? = nil
+
+    private var artworkCount: Int {
+        child.artworks.filter { period?.contains($0.createdAt) ?? true }.count
+    }
+
+    private var periodLabel: String? {
+        guard let period else { return nil }
+        if period.kind == .month {
+            return period.start.formatted(.dateTime.month(.wide).year())
+        }
+        let lastDay = period.end.addingTimeInterval(-1)
+        return "\(period.start.formatted(.dateTime.month(.abbreviated).day())) – \(lastDay.formatted(.dateTime.month(.abbreviated).day()))"
+    }
 
     var body: some View {
         VStack {
@@ -70,13 +84,19 @@ struct WallpaperView: View {
                 .font(FW.Font.sectionTitle())
                 .multilineTextAlignment(.center)
 
-            Text("Using \(child.artworks.count) artwork\(child.artworks.count == 1 ? "" : "s") from \(child.name)")
+            Text("Using \(artworkCount) artwork\(artworkCount == 1 ? "" : "s") from \(child.name)")
                 .font(FW.Font.body(15))
                 .foregroundStyle(FW.Color.ink3)
 
+            if let periodLabel {
+                Text(periodLabel)
+                    .font(FW.Font.caption(13))
+                    .foregroundStyle(FW.Color.ink3)
+            }
+
             FWButton(title: "Generate Wallpaper", icon: "wand.and.stars") {
                 Task {
-                    await viewModel.generate(for: child, style: style, context: modelContext)
+                    viewModel.generate(for: child, style: style, period: period, context: modelContext)
                 }
             }
             .padding(.horizontal, FW.Spacing.xl)
@@ -150,6 +170,12 @@ struct WallpaperView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, FW.Spacing.md)
                 }
+
+                Text("After saving, choose this image in your device’s wallpaper settings.")
+                    .font(FW.Font.caption(13))
+                    .foregroundStyle(FW.Color.ink3)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, FW.Spacing.md)
             }
         }
         .padding(.top, 20)
@@ -219,7 +245,7 @@ struct WallpaperView: View {
 
             FWButton(title: "Try Again", icon: "arrow.clockwise") {
                 Task {
-                    await viewModel.generate(for: child, style: style, context: modelContext)
+                    viewModel.generate(for: child, style: style, period: period, context: modelContext)
                 }
             }
             .padding(.horizontal, FW.Spacing.xl)
