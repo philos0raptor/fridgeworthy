@@ -62,7 +62,10 @@ final class GalleryViewModel {
             }
 
             loadArtworks(for: child)
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
