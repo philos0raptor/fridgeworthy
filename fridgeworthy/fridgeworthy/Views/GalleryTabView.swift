@@ -60,6 +60,7 @@ struct GalleryTabView: View {
                             }
                         }
                     }
+                    .modifier(FWSelectionLayoutAnimation(selection: selectedChild?.id))
                     .padding(.horizontal, FW.Spacing.md)
                 }
 

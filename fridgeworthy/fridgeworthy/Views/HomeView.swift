@@ -182,6 +182,7 @@ struct HomeView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add a child")
             }
+            .modifier(FWSelectionLayoutAnimation(selection: selectedChild?.id))
             .padding(.horizontal, 28)
         }
     }

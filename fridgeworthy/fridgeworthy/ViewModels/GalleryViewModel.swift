@@ -37,6 +37,7 @@ final class GalleryViewModel {
                     // Update existing local record with remote data
                     if let local = child.artworks.first(where: { $0.id == dto.id }) {
                         local.storagePath = dto.storagePath
+                        local.originalStoragePath = dto.originalStoragePath
                         local.title = dto.title
                         local.createdAt = createdAt
                         if let signedURL { local.remoteImageURL = signedURL }
@@ -51,8 +52,9 @@ final class GalleryViewModel {
                         title: dto.title,
                         localImagePath: "",
                         storagePath: dto.storagePath,
+                        originalStoragePath: dto.originalStoragePath,
                         remoteImageURL: signedURL,
-                        backgroundRemoved: true,
+                        backgroundRemoved: false,
                         createdAt: createdAt
                     )
                     artwork.artworkDescription = dto.description

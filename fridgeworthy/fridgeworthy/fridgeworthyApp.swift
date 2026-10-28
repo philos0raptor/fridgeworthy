@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import RevenueCat
+import reactnativeartworkbrownfield
 
 @main
 struct FridgeworthyApp: App {
@@ -39,6 +40,7 @@ struct FridgeworthyApp: App {
 
     init() {
         FW.registerFonts()
+        ReactNativeHostManager.shared.initialize()
 
         // RevenueCat — only configure if key is provided
         if let rcKey = AppConfig.revenueCatAPIKey {

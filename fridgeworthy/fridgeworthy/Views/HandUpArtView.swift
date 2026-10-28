@@ -138,6 +138,7 @@ struct HandUpArtView: View {
                                 selectedChildID = child.id
                             }
                         }
+                        .modifier(FWSelectionLayoutAnimation(selection: selectedChild?.id))
                     }
                 }
                 .disabled(isRendering)
