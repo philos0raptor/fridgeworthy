@@ -64,15 +64,15 @@ final class SupabaseService {
 
     /// Uploads artwork and returns its **storage path** — not a URL.
     ///
-    /// The path is `{profileID}/{childID}/{uuid}.png`. That leading profile segment is
+    /// The path is `{profileID}/{childID}/{uuid}.{extension}`. That leading profile segment is
     /// what the storage policy checks (see `002_scope_artwork_storage.sql`), so uploading
     /// outside your own prefix is rejected by Postgres rather than trusted from the client.
-    func uploadArtwork(imageData: Data, childID: UUID) async throws -> String {
+    func uploadArtwork(imageData: Data, childID: UUID, contentType: String = "image/png", fileExtension: String = "png") async throws -> String {
         let profileID = try await client.auth.session.user.id
-        let path = "\(profileID.uuidString)/\(childID.uuidString)/\(UUID().uuidString).png"
+        let path = "\(profileID.uuidString)/\(childID.uuidString)/\(UUID().uuidString).\(fileExtension)"
 
         try await client.storage.from("artworks")
-            .upload(path, data: imageData, options: .init(contentType: "image/png"))
+            .upload(path, data: imageData, options: .init(contentType: contentType))
 
         return path
     }
@@ -91,17 +91,22 @@ final class SupabaseService {
         id: UUID,
         childID: UUID,
         storagePath: String,
+        originalStoragePath: String? = nil,
         title: String? = nil,
         createdAt: Date = Date()
     ) async throws -> ArtworkDTO {
-        try await client.from("artworks")
-            .insert([
-                "id": id.uuidString,
-                "child_id": childID.uuidString,
-                "image_url": storagePath,
-                "title": title ?? "",
-                "created_at": ISO8601DateFormatter().string(from: createdAt),
-            ])
+        var values = [
+            "id": id.uuidString,
+            "child_id": childID.uuidString,
+            "image_url": storagePath,
+            "title": title ?? "",
+            "created_at": ISO8601DateFormatter().string(from: createdAt),
+        ]
+        if let originalStoragePath {
+            values["original_image_url"] = originalStoragePath
+        }
+        return try await client.from("artworks")
+            .insert(values)
             .select()
             .single()
             .execute()
@@ -146,13 +151,19 @@ final class SupabaseService {
     /// Identifies the style by **slug**, not id. A locally-seeded template carries a
     /// client-generated UUID the server has never seen, so sending an id 404s every time
     /// (see `003_style_template_slugs.sql`).
-    func generateWallpaper(childID: UUID, styleSlug: String) async throws -> UUID {
+    func generateWallpaper(childID: UUID, styleSlug: String, period: ArtworkPeriod? = nil) async throws -> UUID {
+        var body = [
+            "child_id": childID.uuidString,
+            "style_slug": styleSlug,
+        ]
+        if let period {
+            let formatter = ISO8601DateFormatter()
+            body["period_start"] = formatter.string(from: period.start)
+            body["period_end"] = formatter.string(from: period.end)
+        }
         let response: GenerateWallpaperResponse = try await client.functions.invoke(
             "generate-wallpaper",
-            options: .init(body: [
-                "child_id": childID.uuidString,
-                "style_slug": styleSlug,
-            ])
+            options: .init(body: body)
         )
         return response.wallpaperID
     }
@@ -215,18 +226,20 @@ struct ArtworkDTO: Codable, Identifiable, Sendable {
     /// Storage object path, not a URL — `image_url` keeps its column name for
     /// compatibility, but holds a path. Sign it with `signedArtworkURL(path:)` to render.
     let storagePath: String
+    let originalStoragePath: String?
     let title: String?
     let description: String?
     let createdAt: String
 
-    var parsedCreatedAt: Date {
-        ISO8601DateFormatter().date(from: createdAt) ?? Date()
+    var parsedCreatedAt: Date? {
+        ArtworkTimestamp.parse(createdAt)
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, description
         case childID = "child_id"
         case storagePath = "image_url"
+        case originalStoragePath = "original_image_url"
         case createdAt = "created_at"
     }
 }

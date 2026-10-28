@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { periodBounds } from "./period.ts";
 
 const FAL_API_KEY = Deno.env.get("FAL_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -18,6 +19,8 @@ const IMAGE_HEIGHT = 1440;
 
 interface RequestBody {
   child_id: string;
+  period_start?: string;
+  period_end?: string;
   /**
    * Styles are addressed by slug, never by id. The iOS client seeds its own copies of
    * the style templates with client-generated UUIDs, so an id sent from the app can
@@ -28,10 +31,19 @@ interface RequestBody {
 
 serve(async (req) => {
   try {
-    const { child_id, style_slug }: RequestBody = await req.json();
+    const { child_id, style_slug, period_start, period_end }: RequestBody = await req.json();
 
     if (!style_slug) {
       return new Response(JSON.stringify({ error: "style_slug is required" }), { status: 400 });
+    }
+
+    let bounds: ReturnType<typeof periodBounds> | undefined;
+    if (period_start !== undefined || period_end !== undefined) {
+      try {
+        bounds = periodBounds(period_start, period_end);
+      } catch (error) {
+        return new Response(JSON.stringify({ error: String(error) }), { status: 400 });
+      }
     }
 
     // Create admin client for service-level operations
@@ -68,13 +80,21 @@ serve(async (req) => {
       );
     }
 
-    // Fetch recent artworks (4-8)
-    const { data: artworks, error: artworksError } = await supabase
+    // A requested week or month uses exactly its artwork set. Older callers
+    // without bounds retain the existing recent-artwork behavior.
+    let artworkQuery = supabase
       .from("artworks")
       .select("*")
       .eq("child_id", child_id)
-      .order("created_at", { ascending: false })
-      .limit(8);
+      .order("created_at", { ascending: Boolean(bounds) });
+    if (bounds) {
+      artworkQuery = artworkQuery
+        .gte("created_at", bounds.start)
+        .lt("created_at", bounds.end);
+    } else {
+      artworkQuery = artworkQuery.limit(8);
+    }
+    const { data: artworks, error: artworksError } = await artworkQuery;
 
     if (artworksError || !artworks || artworks.length === 0) {
       return new Response(JSON.stringify({ error: "No artworks found" }), { status: 400 });

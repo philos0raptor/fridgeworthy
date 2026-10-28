@@ -13,7 +13,7 @@ final class WallpaperGenerationViewModel {
     private let supabaseService = SupabaseService.shared
     private var pollingTask: Task<Void, Never>?
 
-    func generate(for child: Child, style: StyleTemplate, context: ModelContext) {
+    func generate(for child: Child, style: StyleTemplate, period: ArtworkPeriod? = nil, context: ModelContext) {
         isGenerating = true
         generationStatus = .processing
         errorMessage = nil
@@ -22,12 +22,13 @@ final class WallpaperGenerationViewModel {
             do {
                 let jobID = try await supabaseService.generateWallpaper(
                     childID: child.id,
-                    styleSlug: style.slug
+                    styleSlug: style.slug,
+                    period: period
                 )
 
                 let job = GenerationJob(
                     styleTemplateID: style.id,
-                    artworkIDs: child.artworks.map(\.id)
+                    artworkIDs: child.artworks.filter { period?.contains($0.createdAt) ?? true }.map(\.id)
                 )
                 job.status = .processing
                 context.insert(job)

@@ -219,7 +219,8 @@ def check_daily_memory_persistence() -> None:
     require("let createdAt: String" in service, "remote artwork DTOs must decode their creation day")
     require("case createdAt = \"created_at\"" in service, "remote artwork DTOs must map created_at")
     require("local.title = dto.title" in gallery, "remote sync must restore note edits")
-    require("createdAt: dto.parsedCreatedAt" in gallery, "new remote records must retain their calendar day")
+    require("guard let createdAt = dto.parsedCreatedAt" in gallery, "remote records must have a valid calendar day")
+    require("createdAt: createdAt" in gallery, "new remote records must retain their calendar day")
 
 
 def check_daily_memory_view() -> None:

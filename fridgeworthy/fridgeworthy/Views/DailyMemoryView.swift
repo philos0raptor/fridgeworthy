@@ -1,13 +1,14 @@
 import SwiftData
 import SwiftUI
 import UIKit
+import reactnativeartworkbrownfield
 
 struct DailyMemoryView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Artwork.createdAt) private var allArtworks: [Artwork]
     @Query(sort: \Child.createdAt) private var children: [Child]
 
-    @Binding var pendingImages: [UIImage]
+    @Binding var pendingImages: [PendingArtworkPhoto]
     let initialChild: Child?
     let onRequestPhoto: (Date) -> Void
     let onDisplayedDateChanged: (Date) -> Void
@@ -15,20 +16,21 @@ struct DailyMemoryView: View {
 
     @State private var displayedDate: Date
     @State private var railDatePosition: Date?
-    @State private var currentCardIndex = 0
+    @State private var pendingCarouselFiles: [URL] = []
+    @State private var carouselListenerID: String?
     @State private var selectedEntryChildID: UUID?
     @State private var note = ""
     @State private var isEditingNote = false
     @State private var isPersisting = false
     @State private var viewModel = CaptureViewModel()
-    @FocusState private var noteFocused: Bool
+    @AppStorage("memoryFont") private var memoryFont = "rounded"
 
     private let calendar = Calendar.current
 
     init(
         initialDate: Date,
         initialChild: Child?,
-        pendingImages: Binding<[UIImage]>,
+        pendingImages: Binding<[PendingArtworkPhoto]>,
         onRequestPhoto: @escaping (Date) -> Void,
         onDisplayedDateChanged: @escaping (Date) -> Void,
         onNoteFocusChanged: @escaping (Bool) -> Void
@@ -74,7 +76,7 @@ struct DailyMemoryView: View {
         return artworksForDisplayedDate.filter { $0.child?.id == selectedEntryChild.id }
     }
 
-    private var selectedPendingImages: [UIImage] {
+    private var selectedPendingImages: [PendingArtworkPhoto] {
         guard let selectedEntryChild,
               selectedEntryChild.id == activeChild?.id else {
             return []
@@ -116,10 +118,6 @@ struct DailyMemoryView: View {
         selectedChildArtworks.count + selectedPendingImages.count
     }
 
-    private var cardCount: Int {
-        photoCount + (isToday && photoCount > 0 ? 1 : 0)
-    }
-
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
@@ -133,7 +131,7 @@ struct DailyMemoryView: View {
                     if photoCount == 0 {
                         emptyState
                     } else {
-                        filledState
+                        filledState(availableHeight: geometry.size.height)
                     }
                 }
                 .padding(.horizontal, 24)
@@ -147,57 +145,39 @@ struct DailyMemoryView: View {
         }
         .statusBarHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    let currentArtworks = artworksForDisplayedDate
-                    let currentNote = note
-                    noteFocused = false
-                    isEditingNote = false
-                    Task {
-                        await viewModel.updateMemoryNote(
-                            currentNote,
-                            for: currentArtworks,
-                            context: modelContext
-                        )
-                    }
-                }
-            }
-        }
         .onAppear {
             reconcileSelectedEntryChild()
             refreshNote()
+            syncPendingCarouselFiles()
+            registerCarouselListener()
             persistPendingImagesIfNeeded()
         }
         .onChange(of: displayedDate) { _, newDate in
             railDatePosition = calendar.startOfDay(for: newDate)
-            currentCardIndex = 0
             isEditingNote = false
             reconcileSelectedEntryChild()
             refreshNote()
+            registerCarouselListener()
             onDisplayedDateChanged(newDate)
         }
         .onChange(of: artworksForDisplayedDate.map(\.id)) { _, _ in
             reconcileSelectedEntryChild()
-            currentCardIndex = min(currentCardIndex, max(cardCount - 1, 0))
-            if !noteFocused {
+            if !isEditingNote {
                 refreshNote()
             }
         }
         .onChange(of: pendingImages.count) { _, _ in
             reconcileSelectedEntryChild()
-            currentCardIndex = min(currentCardIndex, max(cardCount - 1, 0))
+            syncPendingCarouselFiles()
             persistPendingImagesIfNeeded()
         }
-        .onChange(of: selectedEntryChildID) { _, _ in
-            currentCardIndex = 0
-        }
-        .onChange(of: noteFocused) { _, isFocused in
-            onNoteFocusChanged(isFocused)
+        .onChange(of: isComposingNote) { _, isComposing in
+            onNoteFocusChanged(isComposing)
         }
         .onDisappear {
             onNoteFocusChanged(false)
+            removeCarouselListener()
+            removePendingCarouselFiles()
             let currentArtworks = artworksForDisplayedDate
             let currentNote = note
             Task {
@@ -339,21 +319,60 @@ struct DailyMemoryView: View {
         }
     }
 
-    private var filledState: some View {
-        VStack(spacing: 0) {
-            if showsChildSelector {
-                childSelector
-                    .padding(.top, 10)
+    private func filledState(availableHeight: CGFloat) -> some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: 0)
+                        .id("memoryTop")
+
+                    if showsChildSelector {
+                        childSelector
+                            .padding(.top, 10)
+                    }
+
+                    artworkCarousel
+                        .padding(.top, 14)
+
+                    ArtworkNoteHostView(
+                        initialNote: artworksForDisplayedDate.first?.title ?? "",
+                        sessionID: noteSessionID,
+                        fontStyle: memoryFont
+                    )
+                        .id("\(noteSessionID)-\(memoryFont)")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: isComposingNote ? 148 : 110)
+                        .padding(.top, 18)
+                        .id("memoryNote")
+                        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: isComposingNote)
+                }
+                .padding(.bottom, 16)
             }
-
-            photoDeck
-                .padding(.top, 14)
-
-            noteArea
-                .padding(.top, 18)
-
-            Spacer(minLength: 8)
+            .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.never)
+            .onChange(of: isComposingNote) { _, isComposing in
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                    scrollProxy.scrollTo(
+                        isComposing ? "memoryNote" : "memoryTop",
+                        anchor: isComposing ? .bottom : .top
+                    )
+                }
+            }
+            .onChange(of: availableHeight) { _, _ in
+                guard isComposingNote else { return }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    scrollProxy.scrollTo("memoryNote", anchor: .bottom)
+                }
+            }
         }
+    }
+
+    private var isComposingNote: Bool { isEditingNote }
+    private var cardHeight: CGFloat { isComposingNote ? 210 : 314 }
+
+    private var noteSessionID: String {
+        String(calendar.startOfDay(for: displayedDate).timeIntervalSince1970)
     }
 
     private var childSelector: some View {
@@ -367,34 +386,18 @@ struct DailyMemoryView: View {
                         customIndex: child.colorIndex
                     )
 
-                    Button {
-                        withAnimation(.snappy(duration: 0.24)) {
-                            selectedEntryChildID = child.id
-                            currentCardIndex = 0
-                        }
-                    } label: {
-                        Text(child.name)
-                            .font(FW.Font.caption(12))
-                            .foregroundStyle(FW.Color.onboardingInk)
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 7)
-                            .background(color.opacity(isSelected ? 0.78 : 0.48))
-                            .clipShape(Capsule())
-                            .overlay {
-                                Capsule()
-                                    .strokeBorder(
-                                        isSelected
-                                            ? FW.Color.onboardingInk.opacity(0.58)
-                                            : Color.white.opacity(0.72),
-                                        lineWidth: isSelected ? 1.25 : 1
-                                    )
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(child.name)
-                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    FWAnimatedSelectionChip(
+                        name: child.name,
+                        colorTint: color,
+                        isActive: isSelected,
+                        onTap: { selectedEntryChildID = child.id },
+                        font: FW.Font.caption(12),
+                        verticalPadding: 7,
+                        activeBorderColor: FW.Color.onboardingInk.opacity(0.58)
+                    )
                 }
             }
+            .modifier(FWSelectionLayoutAnimation(selection: selectedEntryChild?.id))
             .padding(.horizontal, 2)
         }
         .scrollIndicators(.hidden)
@@ -402,21 +405,15 @@ struct DailyMemoryView: View {
         .accessibilityLabel("Children with artwork on this day")
     }
 
-    private var photoDeck: some View {
-        ZStack {
-            ForEach(0..<cardCount, id: \.self) { index in
-                card(at: index)
-                    .offset(x: cardOffset(for: index))
-                    .scaleEffect(cardScale(for: index), anchor: .trailing)
-                    .opacity(cardOpacity(for: index))
-                    .zIndex(cardZIndex(for: index))
-                    .allowsHitTesting(index == currentCardIndex)
-            }
-        }
-        .frame(width: 292, height: 314)
-        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .gesture(photoSwipeGesture)
-        .animation(.snappy(duration: 0.24), value: currentCardIndex)
+    private var artworkCarousel: some View {
+        ArtworkCarouselHostView(
+            images: carouselImages,
+            allowsAddingPhoto: isToday
+        )
+        .id(carouselIdentity)
+        .frame(maxWidth: .infinity)
+        .frame(height: cardHeight)
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: isComposingNote)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             selectedEntryChild.map { "Photos for \($0.name) on \(headerTitle)" }
@@ -424,117 +421,23 @@ struct DailyMemoryView: View {
         )
     }
 
-    @ViewBuilder
-    private func card(at index: Int) -> some View {
-        if index < dayArtworks.count {
-            artworkCard(dayArtworks[index])
-        } else if index < photoCount {
-            imageCard(Image(uiImage: selectedPendingImages[index - dayArtworks.count]))
-                .accessibilityLabel("New photo \(index - dayArtworks.count + 1)")
-        } else {
-            Button {
-                onRequestPhoto(displayedDate)
-            } label: {
-                ZStack {
-                    FW.Color.lavender
-                    Image("FWNavCapture")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 88, height: 88)
-                }
-                .frame(width: 292, height: 314)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .modifier(FW.Shadow.cardMedium())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Add another photo")
+    private var carouselImages: [[String: String]] {
+        let saved = dayArtworks.map { artwork in
+            ["id": artwork.id.uuidString, "uri": imageURL(for: artwork)]
         }
-    }
-
-    @ViewBuilder
-    private func artworkCard(_ artwork: Artwork) -> some View {
-        if let localImage = localImage(for: artwork) {
-            imageCard(Image(uiImage: localImage))
-                .accessibilityLabel("Saved artwork photo")
-        } else if let remoteImageURL = artwork.remoteImageURL,
-                  let url = URL(string: remoteImageURL) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    imageCard(image)
-                } else if phase.error != nil {
-                    unavailablePhoto
-                } else {
-                    ProgressView()
-                        .tint(FW.Color.onboardingInk)
-                        .frame(width: 292, height: 314)
-                        .background(FW.Color.paper)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                }
-            }
-            .accessibilityLabel("Saved artwork photo")
-        } else {
-            unavailablePhoto
+        let pending = selectedPendingImages.indices.compactMap { index -> [String: String]? in
+            guard pendingCarouselFiles.indices.contains(index) else { return nil }
+            return [
+                "id": "pending-\(index)",
+                "uri": pendingCarouselFiles[index].absoluteString,
+            ]
         }
+        return saved + pending
     }
 
-    private func imageCard(_ image: Image) -> some View {
-        image
-            .resizable()
-            .scaledToFill()
-            .frame(width: 292, height: 314)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .modifier(FW.Shadow.cardMedium())
-    }
-
-    private var unavailablePhoto: some View {
-        Image(systemName: "photo")
-            .font(.system(size: 36, weight: .light))
-            .foregroundStyle(FW.Color.onboardingInk.opacity(0.34))
-            .frame(width: 292, height: 314)
-            .background(FW.Color.paper)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    @ViewBuilder
-    private var noteArea: some View {
-        if shouldShowEditor {
-            ZStack(alignment: .topLeading) {
-                if note.isEmpty {
-                    Text("What do you want to remember?")
-                        .font(FW.Font.body(17))
-                        .foregroundStyle(FW.Color.onboardingInk.opacity(0.48))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
-                        .allowsHitTesting(false)
-                }
-
-                TextEditor(text: $note)
-                    .font(FW.Font.body(17))
-                    .foregroundStyle(FW.Color.onboardingInk)
-                    .scrollContentBackground(.hidden)
-                    .focused($noteFocused)
-                    .frame(minHeight: 82, maxHeight: 132)
-            }
-        } else if photoCount > 0 {
-            Button {
-                isEditingNote = true
-                noteFocused = true
-            } label: {
-                Text(note.isEmpty ? "What do you want to remember?" : note)
-                    .font(FW.Font.body(18))
-                    .foregroundStyle(FW.Color.onboardingInk.opacity(note.isEmpty ? 0.48 : 1))
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(note.isEmpty ? "Add memory message" : "Edit memory message")
-        }
-    }
-
-    private var shouldShowEditor: Bool {
-        isEditingNote || (isToday && photoCount > 0)
+    private var carouselIdentity: String {
+        let imageIDs = carouselImages.map { "\($0["id"] ?? ""): \($0["uri"] ?? "")" }
+        return "\(calendar.startOfDay(for: displayedDate).timeIntervalSince1970)-\(selectedEntryChildID?.uuidString ?? "none")-\(imageIDs.joined(separator: "|"))"
     }
 
     private var headerTitle: String {
@@ -542,43 +445,6 @@ struct DailyMemoryView: View {
         guard !DailyMemoryNavigation.isToday(headerDate, calendar: calendar) else { return "Today" }
         let components = calendar.dateComponents([.month, .day], from: headerDate)
         return String(format: "%02d.%02d", components.month ?? 0, components.day ?? 0)
-    }
-
-    private func forwardDistance(to index: Int) -> Int {
-        guard cardCount > 0 else { return 0 }
-        return (index - currentCardIndex + cardCount) % cardCount
-    }
-
-    private func cardOffset(for index: Int) -> CGFloat {
-        CGFloat(min(forwardDistance(to: index), 2)) * 16
-    }
-
-    private func cardScale(for index: Int) -> CGFloat {
-        1 - CGFloat(min(forwardDistance(to: index), 2)) * 0.035
-    }
-
-    private func cardOpacity(for index: Int) -> Double {
-        forwardDistance(to: index) > 2 ? 0 : 1
-    }
-
-    private func cardZIndex(for index: Int) -> Double {
-        Double(cardCount - forwardDistance(to: index))
-    }
-
-    private var photoSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 22)
-            .onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height),
-                      abs(value.translation.width) > 36 else {
-                    return
-                }
-                let delta = value.translation.width < 0 ? 1 : -1
-                currentCardIndex = DailyMemoryNavigation.wrappedIndex(
-                    currentCardIndex,
-                    delta: delta,
-                    count: cardCount
-                )
-            }
     }
 
     private var daySwipeGesture: some Gesture {
@@ -606,11 +472,75 @@ struct DailyMemoryView: View {
             }
     }
 
-    private func localImage(for artwork: Artwork) -> UIImage? {
-        guard !artwork.localImagePath.isEmpty else { return nil }
+    private func imageURL(for artwork: Artwork) -> String {
+        guard !artwork.localImagePath.isEmpty else {
+            return artwork.remoteImageURL ?? ""
+        }
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let fileURL = documentsURL.appendingPathComponent(artwork.localImagePath)
-        return UIImage(contentsOfFile: fileURL.path)
+        return FileManager.default.fileExists(atPath: fileURL.path)
+            ? fileURL.absoluteString
+            : (artwork.remoteImageURL ?? "")
+    }
+
+    private func syncPendingCarouselFiles() {
+        removePendingCarouselFiles()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("artwork-carousel", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        pendingCarouselFiles = pendingImages.compactMap { photo in
+            let fileURL = directory.appendingPathComponent("\(UUID().uuidString).jpg")
+            guard let data = photo.preparedImage.jpegData(compressionQuality: 0.85),
+                  (try? data.write(to: fileURL, options: .atomic)) != nil else {
+                return nil
+            }
+            return fileURL
+        }
+    }
+
+    private func removePendingCarouselFiles() {
+        pendingCarouselFiles.forEach { try? FileManager.default.removeItem(at: $0) }
+        pendingCarouselFiles = []
+    }
+
+    private func registerCarouselListener() {
+        removeCarouselListener()
+        let date = displayedDate
+        let sessionID = noteSessionID
+        carouselListenerID = BrownfieldMessaging.addListener { message in
+            guard let type = message["type"] as? String else { return }
+            Task { @MainActor in
+                switch type {
+                case "artworkCarousel:addPhoto":
+                    onRequestPhoto(date)
+                case "artworkNote:focus":
+                    guard message["sessionID"] as? String == sessionID else { return }
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                        isEditingNote = true
+                    }
+                case "artworkNote:change":
+                    guard message["sessionID"] as? String == sessionID,
+                          let text = message["text"] as? String else { return }
+                    note = text
+                case "artworkNote:blur":
+                    guard message["sessionID"] as? String == sessionID,
+                          let text = message["text"] as? String else { return }
+                    note = text
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                        isEditingNote = false
+                    }
+                    commitCurrentNote()
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    private func removeCarouselListener() {
+        guard let carouselListenerID else { return }
+        BrownfieldMessaging.removeListener(id: carouselListenerID)
+        self.carouselListenerID = nil
     }
 
     private func refreshNote() {
@@ -644,9 +574,9 @@ struct DailyMemoryView: View {
 
         Task {
             while !pendingImages.isEmpty {
-                let image = pendingImages[0]
+                let photo = pendingImages[0]
                 let saved = await viewModel.saveMemoryImage(
-                    image,
+                    photo,
                     note: note,
                     date: targetDate,
                     child: activeChild,

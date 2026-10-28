@@ -7,6 +7,7 @@ struct CaptureView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = CaptureViewModel()
     @State private var selectedItem: PhotosPickerItem?
+    @State private var showingCamera = false
     @Query(sort: \Child.createdAt) private var children: [Child]
     @State private var selectedChild: Child?
 
@@ -34,6 +35,7 @@ struct CaptureView: View {
                                         selectedChild = c
                                     }
                                 }
+                                .modifier(FWSelectionLayoutAnimation(selection: activeChild.id))
                             }
                             .padding(.horizontal, FW.Spacing.md)
                         }
@@ -70,6 +72,13 @@ struct CaptureView: View {
                 }
             }
             .disabled(viewModel.isUploading)
+            .sheet(isPresented: $showingCamera) {
+                CameraView { image in
+                    showingCamera = false
+                    Task { await viewModel.processImage(image) }
+                }
+                .ignoresSafeArea()
+            }
             .task {
                 if let image = initialImage, viewModel.selectedImage == nil {
                     await viewModel.processImage(image)
@@ -106,11 +115,11 @@ struct CaptureView: View {
                 .font(FW.Font.sectionTitle())
                 .multilineTextAlignment(.center)
 
-            Text("We'll remove the background automatically")
+            Text("We'll straighten and crop the paper for you")
                 .font(FW.Font.body(15))
                 .foregroundStyle(FW.Color.ink3)
 
-            PhotosPicker(selection: $selectedItem, matching: .images) {
+            PhotosPicker(selection: $selectedItem, matching: .images, preferredItemEncoding: .current) {
                 HStack(spacing: 8) {
                     Image(systemName: "photo.on.rectangle")
                         .font(.system(size: 17, weight: .semibold))
@@ -129,11 +138,17 @@ struct CaptureView: View {
                 Task {
                     if let data = try? await newItem?.loadTransferable(type: Data.self),
                        let image = UIImage(data: data) {
-                        await viewModel.processImage(image)
+                        await viewModel.processImage(image, originalData: data)
                     }
                 }
             }
             .padding(.horizontal, FW.Spacing.xl)
+
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take Photo") { showingCamera = true }
+                    .font(FW.Font.body(17))
+                    .foregroundStyle(FW.Color.accent)
+            }
 
             Spacer()
         }
@@ -145,10 +160,10 @@ struct CaptureView: View {
             ProgressView()
                 .scaleEffect(1.5)
                 .tint(FW.Color.accent)
-            Text("Removing background...")
+            Text("Finding the paper...")
                 .font(FW.Font.body(15))
                 .foregroundStyle(FW.Color.ink3)
-            Text("We'll remove the background automatically")
+            Text("Preparing a crop without changing the artwork's colors")
                 .font(FW.Font.caption(13))
                 .foregroundStyle(FW.Color.ink4)
         }
@@ -157,10 +172,19 @@ struct CaptureView: View {
 
     private var beforeAfterPreview: some View {
         VStack(spacing: 20) {
-            if let processed = viewModel.processedImage {
-                Image(uiImage: processed)
-                    .resizable()
-                    .scaledToFit()
+            if let image = viewModel.isAdjustingCorners ? viewModel.imageForCornerEditing : (viewModel.processedImage ?? viewModel.selectedImage) {
+                Group {
+                    if viewModel.isAdjustingCorners, let corners = viewModel.paperCorners {
+                        PaperCornerEditor(image: image, corners: Binding(
+                            get: { viewModel.paperCorners ?? corners },
+                            set: { viewModel.paperCorners = $0 }
+                        ))
+                    } else {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                    }
+                }
                     .frame(maxHeight: 360)
                     .background {
                         RoundedRectangle(cornerRadius: FW.Radius.card, style: .continuous)
@@ -175,6 +199,30 @@ struct CaptureView: View {
                     .clipShape(RoundedRectangle(cornerRadius: FW.Radius.card, style: .continuous))
                     .modifier(FW.Shadow.cardMedium())
                     .padding(.horizontal, FW.Spacing.md)
+            }
+
+            if viewModel.detectionUncertain && !viewModel.hasChosenPreparation {
+                Text("We couldn't locate the paper with confidence. Adjust its corners or keep the full photo.")
+                    .font(FW.Font.body(15))
+                    .foregroundStyle(FW.Color.ink3)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, FW.Spacing.xl)
+            }
+
+            if viewModel.isAdjustingCorners {
+                HStack(spacing: 20) {
+                    Button("Keep Full Photo") { viewModel.keepOriginal() }
+                    Button("Use Crop") { viewModel.prepareWithAdjustedCorners() }
+                }
+                .font(FW.Font.body(16))
+                .foregroundStyle(FW.Color.accent)
+            } else {
+                HStack(spacing: 20) {
+                    Button("Adjust Corners") { viewModel.isAdjustingCorners = true }
+                    Button("Keep Full Photo") { viewModel.keepOriginal() }
+                }
+                .font(FW.Font.body(16))
+                .foregroundStyle(FW.Color.accent)
             }
 
             HStack(spacing: 16) {
@@ -198,6 +246,7 @@ struct CaptureView: View {
                         if success { dismiss() }
                     }
                 }
+                .disabled(!viewModel.hasChosenPreparation || viewModel.isAdjustingCorners)
             }
             .padding(.horizontal, FW.Spacing.md)
         }

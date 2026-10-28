@@ -7,8 +7,11 @@ final class Artwork {
     var title: String?
     var artworkDescription: String?
     var localImagePath: String
+    /// Unedited source photo, including the original encoded bytes when selected from Photos.
+    var originalLocalImagePath: String?
     /// Durable storage object path in the `artworks` bucket. Persist this, not the URL.
     var storagePath: String?
+    var originalStoragePath: String?
     /// Signed URL minted from `storagePath`. Expires — treat as a render-time cache,
     /// never as the source of truth.
     var remoteImageURL: String?
@@ -23,7 +26,9 @@ final class Artwork {
         title: String? = nil,
         artworkDescription: String? = nil,
         localImagePath: String,
+        originalLocalImagePath: String? = nil,
         storagePath: String? = nil,
+        originalStoragePath: String? = nil,
         remoteImageURL: String? = nil,
         colorPalette: [String] = [],
         backgroundRemoved: Bool = false,
@@ -33,7 +38,9 @@ final class Artwork {
         self.title = title
         self.artworkDescription = artworkDescription
         self.localImagePath = localImagePath
+        self.originalLocalImagePath = originalLocalImagePath
         self.storagePath = storagePath
+        self.originalStoragePath = originalStoragePath
         self.remoteImageURL = remoteImageURL
         self.colorPalette = colorPalette
         self.backgroundRemoved = backgroundRemoved

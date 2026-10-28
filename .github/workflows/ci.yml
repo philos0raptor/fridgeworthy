@@ -44,6 +44,16 @@ jobs:
               echo "created $target"
             done
 
+      # The Xcode project links a local package generated from React Native.
+      # Its 600 MB framework is intentionally ignored by Git, so create it on
+      # every fresh runner before asking Xcode to build the host app.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build artwork carousel package
+        run: scripts/build-artwork-carousel.sh
+
       - name: Build
         run: |
           set -o pipefail

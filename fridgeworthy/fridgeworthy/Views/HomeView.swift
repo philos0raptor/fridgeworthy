@@ -4,6 +4,7 @@ import SwiftUI
 struct HomeView: View {
     var addChildRequestToken: UUID?
     var onSelectDate: ((Date, Child?) -> Void)? = nil
+    var onOpenHandUpArt: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthService.self) private var authService
@@ -114,10 +115,9 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .accessibilityHint("Choose a different month and year")
 
-            if !MonthCalendar.isCurrentMonth(visibleMonth, calendar: calendar) {
-                HStack {
-                    Spacer()
-
+            HStack(spacing: 8) {
+                Spacer()
+                if !MonthCalendar.isCurrentMonth(visibleMonth, calendar: calendar) {
                     Button("Today") {
                         withAnimation(.snappy(duration: 0.3)) {
                             visibleMonth = Date()
@@ -130,6 +130,18 @@ struct HomeView: View {
                     .background(.white.opacity(0.74))
                     .clipShape(Capsule())
                 }
+
+                Button {
+                    onOpenHandUpArt?()
+                } label: {
+                    Image(systemName: "square.stack.3d.up")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(FW.Color.onboardingInk)
+                        .frame(width: 38, height: 38)
+                        .background(.white.opacity(0.74))
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel("Hand up art")
             }
         }
         .frame(minHeight: 44)
@@ -170,6 +182,7 @@ struct HomeView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add a child")
             }
+            .modifier(FWSelectionLayoutAnimation(selection: selectedChild?.id))
             .padding(.horizontal, 28)
         }
     }

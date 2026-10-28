@@ -7,16 +7,20 @@ import UIKit
 struct MainTabView: View {
     @State private var selectedTab: FWTab = .home
     @State private var showSettingsSheet = false
+    @State private var showHandUpArt = false
+    @State private var handUpCaptureDate: Date?
+    @State private var handUpCaptureChildID: UUID?
     @State private var showAddArtworkSheet = false
     @State private var showCamera = false
     @State private var showCameraUnavailable = false
     @State private var capturedImage: UIImage?
+    @State private var reviewItem: ArtworkReviewItem?
     @State private var libraryItem: PhotosPickerItem?
     @State private var captureRequiresChild = false
     @State private var addChildRequestToken: UUID?
     @State private var memoryDate = Date()
     @State private var memoryChild: Child?
-    @State private var pendingImages: [UIImage] = []
+    @State private var pendingImages: [PendingArtworkPhoto] = []
     @State private var photoTargetDate = Date()
     @State private var photoTargetChild: Child?
     @State private var isMemoryNoteFocused = false
@@ -34,7 +38,8 @@ struct MainTabView: View {
                     NavigationStack {
                         HomeView(
                             addChildRequestToken: addChildRequestToken,
-                            onSelectDate: openMemory
+                            onSelectDate: openMemory,
+                            onOpenHandUpArt: { showHandUpArt = true }
                         )
                     }
                 case .capture:
@@ -51,8 +56,9 @@ struct MainTabView: View {
                     Color.clear
                 }
             }
-            // Extra bottom padding so content doesn't hide behind tab bar
-            .safeAreaPadding(.bottom, 80)
+            // Reserve space for the tab bar only while it is visible.
+            .safeAreaPadding(.bottom, isMemoryNoteFocused ? 0 : 80)
+            .animation(.spring(response: 0.38, dampingFraction: 0.86), value: isMemoryNoteFocused)
 
             if DailyMemoryNavigation.showsBottomNavigation(
                 isNoteFocused: isMemoryNoteFocused
@@ -86,6 +92,21 @@ struct MainTabView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showHandUpArt, onDismiss: {
+            if let date = handUpCaptureDate {
+                handUpCaptureDate = nil
+                beginHandUpCapture(date: date, childID: handUpCaptureChildID)
+                handUpCaptureChildID = nil
+            }
+        }) {
+            NavigationStack {
+                HandUpArtView { date, child in
+                    handUpCaptureDate = date
+                    handUpCaptureChildID = child?.id
+                    showHandUpArt = false
+                }
+            }
+        }
         .alert("Add a child first", isPresented: $captureRequiresChild) {
             Button("Add Child") {
                 selectedTab = .home
@@ -100,24 +121,32 @@ struct MainTabView: View {
         } message: {
             Text("The camera is not available on this device. You can still choose artwork from the photo library.")
         }
-        .photosPicker(isPresented: $showLibraryPicker, selection: $libraryItem, matching: .images)
+        .photosPicker(isPresented: $showLibraryPicker, selection: $libraryItem, matching: .images, preferredItemEncoding: .current)
         .onChange(of: libraryItem) { _, newItem in
             guard let newItem else { return }
             Task {
                 if let data = try? await newItem.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
-                    accept(image)
+                    reviewItem = ArtworkReviewItem(image: image, originalData: data)
                 }
             }
         }
         .fullScreenCover(isPresented: $showCamera, onDismiss: {
             if let capturedImage {
-                accept(capturedImage)
+                if let data = capturedImage.pngData() {
+                    reviewItem = ArtworkReviewItem(image: capturedImage, originalData: data)
+                }
                 self.capturedImage = nil
             }
         }) {
             CameraView { image in
                 capturedImage = image
+            }
+        }
+        .sheet(item: $reviewItem) { item in
+            ArtworkReviewView(item: item) { photo in
+                accept(photo)
+                reviewItem = nil
             }
         }
     }
@@ -154,6 +183,17 @@ struct MainTabView: View {
         presentArtworkSourcePicker()
     }
 
+    private func beginHandUpCapture(date: Date, childID: UUID?) {
+        guard !children.isEmpty else {
+            selectedTab = .home
+            captureRequiresChild = true
+            return
+        }
+        photoTargetDate = date
+        photoTargetChild = children.first { $0.id == childID }
+        presentArtworkSourcePicker()
+    }
+
     private func presentArtworkSourcePicker() {
         withAnimation(.easeOut(duration: 0.2)) {
             showAddArtworkSheet = true
@@ -170,10 +210,10 @@ struct MainTabView: View {
         }
     }
 
-    private func accept(_ image: UIImage) {
+    private func accept(_ photo: PendingArtworkPhoto) {
         memoryDate = photoTargetDate
         memoryChild = photoTargetChild
-        pendingImages.append(image)
+        pendingImages.append(photo)
         libraryItem = nil
         withAnimation(.easeOut(duration: 0.18)) {
             selectedTab = .capture
@@ -203,14 +243,6 @@ struct MainTabView: View {
 }
 
 private struct FWAddArtworkSheet: View {
-    private let outlineAssetNames = [
-        "FWChildOutline1",
-        "FWChildOutline2",
-        "FWChildOutline3",
-        "FWChildOutline4",
-        "FWChildOutline5",
-    ]
-
     let targetDate: Date
     let children: [Child]
     let selectedChildID: UUID?
@@ -218,8 +250,6 @@ private struct FWAddArtworkSheet: View {
     let onDismiss: () -> Void
     let onCamera: () -> Void
     let onLibrary: () -> Void
-
-    @State private var outlineVariantByChildID: [UUID: Int] = [:]
 
     private var orderedChildIDs: [UUID] { children.map(\.id) }
 
@@ -264,6 +294,7 @@ private struct FWAddArtworkSheet: View {
                             childChoice(child)
                         }
                     }
+                    .modifier(FWSelectionLayoutAnimation(selection: selectedChildID))
                 }
                 .frame(height: childPickerHeight)
                 .scrollIndicators(.hidden)
@@ -297,10 +328,6 @@ private struct FWAddArtworkSheet: View {
         }
         .ignoresSafeArea(edges: .bottom)
         .accessibilityAddTraits(.isModal)
-        .onAppear(perform: assignOutlinesToNewChildren)
-        .onChange(of: children.map(\.id)) { _, _ in
-            assignOutlinesToNewChildren()
-        }
     }
 
     private func childChoice(_ child: Child) -> some View {
@@ -311,38 +338,18 @@ private struct FWAddArtworkSheet: View {
             customIndex: child.colorIndex
         )
 
-        return Button {
-            onSelectChild(child)
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(color.opacity(isSelected ? 0.78 : 0.36))
-
-                Image(outlineAssetNames[outlineVariantByChildID[child.id] ?? 0])
-                    .renderingMode(.template)
-                    .resizable()
-                    .foregroundStyle(FW.Color.onboardingInk)
-                    .accessibilityHidden(true)
-
-                Text(child.name)
-                    .font(FW.Font.body(14))
-                    .foregroundStyle(FW.Color.onboardingInk)
-                    .lineLimit(1)
-                    .padding(.horizontal, 12)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 42)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func assignOutlinesToNewChildren() {
-        var assignments = outlineVariantByChildID
-        for child in children where assignments[child.id] == nil {
-            assignments[child.id] = Int.random(in: outlineAssetNames.indices)
-        }
-        outlineVariantByChildID = assignments
+        return FWAnimatedSelectionChip(
+            name: child.name,
+            colorTint: color,
+            isActive: isSelected,
+            onTap: { onSelectChild(child) },
+            font: FW.Font.body(14),
+            horizontalPadding: 12,
+            verticalPadding: 12,
+            fillsWidth: true,
+            inactiveFillOpacity: 0.36
+        )
+        .frame(height: 42)
     }
 
     private func artworkAction(
